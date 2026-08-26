@@ -175,7 +175,7 @@ Cache every fetched resource under `%TEMP%\claude\C--Users-Nicol-Desktop-SporeTe
 
 When you want a repository, clone it. `git clone --depth 1` into the cache, then read it with the normal file tools. Do not page through a repo one file at a time over the network. The same applies to documentation sites that ship their source in a repo: clone the repo, read the markdown.
 
-PDFs need `pypdf`; it is already installed. Extract to text once, cache the text alongside the PDF, and read the text after that.
+PDFs need `pypdf`, which is installed. This is the one sanctioned use of Python here, and it is sanctioned because it runs against the cache and never touches the repo. Extract to text once, cache the text alongside the PDF, and read the text after that.
 
 ## Taste
 
@@ -188,7 +188,8 @@ PDFs need `pypdf`; it is already installed. Extract to text once, cache the text
 
 ## Working with me
 
+- **No Python.** Not in the toolchain, not in build scripts, not in the codebase. If something appears to need it, tell me and we will find another way. The single standing exception is reading cached PDFs, which happens outside the repo and touches nothing here.
+- **Do not write memory files.** No notes about me or this project persisted under `.claude/`, no `memory/` directory, nothing squirrelled away outside the repo for a future session to read. If something is worth remembering, it goes in this file where I can see it and edit it.
 - Do not commit implementation plans, scratch notes, or agent working files. Keep them outside the repo.
-- Do not create a PR unless I ask.
-- This is not a git repository yet. Ask before running `git init`.
+- Do not commit or create a PR unless I ask.
 - Tell me when you are uncertain instead of picking silently. On a project whose whole point is finding out whether an approach works, a confidently wrong assumption costs more than a question.
