@@ -175,7 +175,7 @@ Cache every fetched resource under `%TEMP%\claude\C--Users-Nicol-Desktop-SporeTe
 
 When you want a repository, clone it. `git clone --depth 1` into the cache, then read it with the normal file tools. Do not page through a repo one file at a time over the network. The same applies to documentation sites that ship their source in a repo: clone the repo, read the markdown.
 
-PDFs need `pypdf`, which is installed. This is the one sanctioned use of Python here, and it is sanctioned because it runs against the cache and never touches the repo. Extract to text once, cache the text alongside the PDF, and read the text after that.
+PDFs need `pypdf`, which is installed. Extract to text once, cache the text alongside the PDF, and read the text after that.
 
 ## Taste
 
@@ -188,7 +188,7 @@ PDFs need `pypdf`, which is installed. This is the one sanctioned use of Python 
 
 ## Working with me
 
-- **No Python.** Not in the toolchain, not in build scripts, not in the codebase. If something appears to need it, tell me and we will find another way. The single standing exception is reading cached PDFs, which happens outside the repo and touches nothing here.
+- **Prefer not to use Python.** All else equal I would rather avoid it, so reach for TypeScript or a native tool first. This is a tie-breaker, not a ban: where Python is genuinely the right tool for a specific job, use it and say in one line why it won.
 - **Do not write memory files.** No notes about me or this project persisted under `.claude/`, no `memory/` directory, nothing squirrelled away outside the repo for a future session to read. If something is worth remembering, it goes in this file where I can see it and edit it.
 - Do not commit implementation plans, scratch notes, or agent working files. Keep them outside the repo.
 - Do not commit or create a PR unless I ask.
