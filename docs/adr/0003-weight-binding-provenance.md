@@ -14,9 +14,9 @@ Record provenance during meshing - which bodies contributed to each vertex, and 
 
 ## Consequences
 
-Binding costs almost nothing, because the field evaluation already computed it. This is what makes per-edit rebinding affordable, and per-edit rebinding is what makes the editor feel live.
+Provenance avoids reconstructing source ownership from geometry. The initial mesher adapter evaluates contributions at output vertices because the surface-nets package does not retain them. Normalisation, adjacency construction, smoothing, and any influence reduction still have a cost that must be measured when binding is implemented.
 
-The smoothing pass is required, not optional. Hecker names the failure modes: discontinuities at spine joints, and torso shear on heavy creatures. Those are reported from shipping a game to millions of players, so treat them as given rather than as something to discover.
+The smoothing pass remains required by this decision. Hecker reports torso shear and poor spine weights, but does not prescribe our adjacency smoothing algorithm or establish its sufficiency. Validate deformation on bent spines, heavy torsos, and torso-attached parts rather than treating normalised weights as proof of a good bind.
 
 Parts need no binding at all. They are separate meshes rigidly bound to their own bone, so this only has to cover the skin.
 

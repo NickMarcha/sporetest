@@ -1,0 +1,67 @@
+---
+import '../editor/style.css';
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f5ef" />
+    <meta name="description" content="An experiment in making creatures. Shape a spine and watch a skin grow around it." />
+    <title>SporeTest · Creature workshop</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23627c69' d='M6 23C-2 13 9 2 19 5S35 23 23 27 9 27 6 23Z'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="SporeTest home"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 24C0 18 3 7 12 5s20 6 17 14-15 11-22 5Z" fill="currentColor"/><circle cx="12" cy="14" r="2" fill="#f6f5ef"/><circle cx="21" cy="17" r="2" fill="#f6f5ef"/></svg>spore<span>test</span></a>
+      <div class="project-label">CREATURE WORKSHOP <span>01 / SPINE & SKIN</span></div>
+      <button id="save" class="button primary">Save recipe <span aria-hidden="true">↗</span></button>
+    </header>
+    <main class="workspace">
+      <aside class="sidebar" aria-label="Creature controls">
+        <div class="intro"><span class="eyebrow">A LITTLE EXPERIMENT IN LIFE</span><h1>Make something<br/>unfamiliar.</h1><p>Start with a spine.<br/>See what grows around it.</p></div>
+        <section class="spine-section">
+          <div class="section-heading"><h2>Spine</h2><span id="spine-count">5 vertebrae</span></div>
+          <div class="chain-labels"><span>HEAD</span><span>TAIL</span></div>
+          <div id="vertebrae" class="vertebrae" role="group" aria-label="Select a vertebra"></div>
+          <div class="button-row"><button id="add" class="button">+ Add after</button><button id="remove" class="button quiet">Remove</button></div>
+        </section>
+        <section class="shape-section">
+          <div class="section-heading"><h2 id="selected-label">Vertebra 3</h2><span class="selection-dot" aria-hidden="true"></span></div>
+          <div class="range-label"><label for="radius">Radius</label><output id="radius-output" for="radius">0.76 m</output></div>
+          <input id="radius" type="range" min="0.1" max="1.6" step="0.01" value="0.76" />
+          <div class="axis-label">Position <span>metres</span></div>
+          <div class="coordinates">
+            <label><span>X</span><input id="position-x" type="number" step="0.1" aria-label="Position X" /></label>
+            <label><span>Y</span><input id="position-y" type="number" step="0.1" aria-label="Position Y" /></label>
+            <label><span>Z</span><input id="position-z" type="number" step="0.1" aria-label="Position Z" /></label>
+          </div>
+        </section>
+        <section class="skin-section">
+          <div class="section-heading"><h2>Skin</h2><span>CLAY STUDIES</span></div>
+          <div class="swatches" role="group" aria-label="Skin colour">
+            <button data-color="#91ae9e" style="--swatch:#91ae9e" aria-label="Sage skin" aria-pressed="true"></button>
+            <button data-color="#c58e74" style="--swatch:#c58e74" aria-label="Terracotta skin" aria-pressed="false"></button>
+            <button data-color="#b2a1c3" style="--swatch:#b2a1c3" aria-label="Lilac skin" aria-pressed="false"></button>
+            <button data-color="#d6ba72" style="--swatch:#d6ba72" aria-label="Ochre skin" aria-pressed="false"></button>
+            <button data-color="#82a8b6" style="--swatch:#82a8b6" aria-label="Blue skin" aria-pressed="false"></button>
+            <button data-color="#d1cbc0" style="--swatch:#d1cbc0" aria-label="Chalk skin" aria-pressed="false"></button>
+          </div>
+          <label class="toggle"><input id="show-spine" type="checkbox" checked/><span>Show spine</span></label>
+          <label class="toggle"><input id="wireframe" type="checkbox"/><span>Wireframe</span></label>
+          <div class="resolution"><label for="resolution">Skin detail</label><select id="resolution"><option value="3">Draft</option><option value="4" selected>Balanced</option><option value="6">Fine</option></select></div>
+        </section>
+        <div class="sidebar-foot"><span class="small-dot"></span> Handmade by you. Meshed by maths.</div>
+      </aside>
+      <section id="viewport" aria-label="Creature workshop">
+        <div class="viewport-top"><div class="specimen"><span class="eyebrow">UNTITLED CREATURE</span><span>Study no. 001</span></div><div class="view-actions"><button class="icon-button" id="undo" title="Undo" aria-label="Undo" disabled>↶</button><button class="icon-button" id="redo" title="Redo" aria-label="Redo" disabled>↷</button><span class="divider"></span><button class="button glass" id="frame">Frame creature</button><button class="icon-button" id="reset" title="Start over" aria-label="Start over">⟲</button></div></div>
+        <div id="error" class="error" role="alert" hidden></div>
+        <div class="viewport-bottom"><div class="hint"><span class="hint-mark" aria-hidden="true">✳</span><div><strong>Pull a point. Change a creature.</strong><span>Drag a vertebra to shape · Drag the background to orbit · Scroll to zoom</span></div></div><span class="axis-key">Y UP <span>·</span> METRES</span></div>
+      </section>
+    </main>
+    <footer class="statusbar"><div><span class="small-dot"></span><span id="status" role="status">Starting…</span></div><div class="metrics"><span><b id="triangles">—</b> triangles</span><span>Mesh <b id="mesh-time">—</b></span><span>Cell <b id="cell-size">—</b></span><span>Builds <b id="builds">0</b></span></div><span class="stage-label">SPINE → FIELD → SKIN</span></footer>
+    <script>
+      import '../editor/bootstrap.ts';
+    </script>
+  </body>
+</html>

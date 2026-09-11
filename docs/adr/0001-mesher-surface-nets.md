@@ -14,13 +14,13 @@ Surface nets. One vertex per cell whose corner signs differ, positioned by inter
 
 ## Consequences
 
-Only cells whose corner signs changed need rebuilding, so moving one vertebra remeshes a local box instead of the whole creature. This is the reason for the choice, and it means the mesher must track dirty regions rather than resampling everything. A mesher that ignores this is not wrong, only useless.
+Moving a vertebra changes scalar values within the old and new support bounds of affected contributions. These values can move surface vertices without changing corner signs. Incremental updates must invalidate those bounds plus neighbouring cells needed for connectivity and normals.
 
 Triangle sizes come out far more uniform than marching cubes produces. That matters downstream: weights and deformation read badly across slivers, and we are binding automatically with no artist to fix it.
 
 The surface is smooth everywhere, with no sharp features. For a creature made of blended clay this is what we want. If we ever need a hard edge, we do not get one.
 
-`surface-nets` on npm is pure and has no `three` dependency, so it can sit above the line. It is Lysenko's 2013 code and has no concept of dirty regions, so expect to write our own once incremental remeshing arrives. Start with the package; replace it when it becomes the bottleneck, not before.
+`surface-nets` on npm has no `three` dependency, so it can sit above the line. The first slice uses version 1.0.2, which has no incremental-update or provenance API. Its adapter converts grid coordinates to creature space and evaluates provenance at output vertices. Start with full remeshing in a worker and measure it; replace the package when it becomes the bottleneck. Compact-support sampling and retained provenance are required from the start.
 
 ## Alternatives
 

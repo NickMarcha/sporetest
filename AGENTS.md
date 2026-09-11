@@ -20,7 +20,9 @@ So: **the rigging and animation architecture is the deliverable.** Every layer b
 
 Design is settled. `CONTEXT.md` holds the domain model, and `docs/adr/` records the five decisions that would be expensive to reverse. Read both before you write anything.
 
-Code has not started. The first slice is the editor and the mesher: drag a spine, watch a skin appear, and nothing else. Rigging comes after there is a skin to bind.
+The first slice implements the spine editor and mesher: drag vertebrae, adjust radii, and watch a skin appear. Recipes can be downloaded as JSON. Skin already carries authored-source provenance and analytic field normals. Rigging comes next; parts, binding, IK, and gait are not implemented yet.
+
+Meshing runs in a worker on edits, with one in-flight request and the newest pending edit. The surface-nets package currently rebuilds the full sampled grid. This is the measured baseline before incremental remeshing.
 
 Nothing here is shipped. See the note on backward compatibility below, which says exactly when that changes.
 
@@ -136,7 +138,7 @@ Three.js is the deliberate application of "lean on established libraries". Writi
 
 ## Where code will live
 
-None of this exists yet. It is the plan, and the plan is allowed to change if the domain model says otherwise.
+The first slice contains `creature/`, `field/`, `mesh/`, `render/`, `editor/`, and `pages/`. The remaining directories below are planned.
 
 ```
 src/
