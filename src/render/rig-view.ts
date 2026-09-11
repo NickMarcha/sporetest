@@ -1,0 +1,53 @@
+import * as THREE from 'three';
+import { createPose, writeBendPose } from '../anim/pose.ts';
+import { packWeights } from '../rig/weights.ts';
+import type { Rig } from '../rig/rig.ts';
+import type { Skin } from '../mesh/mesh.ts';
+
+export function createRigView(skin: Skin, rig: Rig, material: THREE.MeshStandardMaterial) {
+  const packed = packWeights(rig.weights, 4);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(skin.positions, 3));
+  geometry.setAttribute('normal', new THREE.BufferAttribute(skin.normals, 3));
+  // Three's stock skinning shader takes vec4 indices; Uint32 attributes use an integer
+  // vertex pointer and do not match that shader input. Convert only at this boundary.
+  geometry.setAttribute('skinIndex', new THREE.Float32BufferAttribute(packed.indices, 4));
+  geometry.setAttribute('skinWeight', new THREE.BufferAttribute(packed.values, 4));
+  geometry.setIndex(new THREE.BufferAttribute(skin.triangles, 1));
+  geometry.computeBoundingBox();
+  const mesh = new THREE.SkinnedMesh(geometry, material);
+  // This viewport contains one creature. Avoid stale rest-pose culling or O(vertices)
+  // bounding-box work on every pose; explicit framing computes the posed bounds on demand.
+  mesh.frustumCulled = false;
+  const bones = rig.bones.map(bone => {
+    const rendered = new THREE.Bone();
+    rendered.name = bone.id;
+    rendered.matrixAutoUpdate = false;
+    rendered.matrix.fromArray(bone.restLocal);
+    return rendered;
+  });
+  rig.bones.forEach((bone, index) => {
+    if (bone.parent < 0) mesh.add(bones[index]);
+    else bones[bone.parent].add(bones[index]);
+  });
+  const skeleton = new THREE.Skeleton(bones, rig.bones.map(bone => new THREE.Matrix4().fromArray(bone.inverseBind)));
+  mesh.bind(skeleton, new THREE.Matrix4());
+  const pose = createPose(rig.bones);
+  const positions = new Float32Array(bones.length * 3);
+  function bend(radians: number) {
+    writeBendPose(rig.bones, radians, pose);
+    for (let index = 0; index < bones.length; index++) {
+      bones[index].matrix.fromArray(pose.local[index]);
+      bones[index].matrixWorldNeedsUpdate = true;
+      positions[index * 3] = pose.creature[index][12];
+      positions[index * 3 + 1] = pose.creature[index][13];
+      positions[index * 3 + 2] = pose.creature[index][14];
+    }
+  }
+  bend(0);
+  return {
+    mesh, positions, bend,
+    maximumDiscarded: packed.maximumDiscarded,
+    dispose() { geometry.dispose(); skeleton.dispose(); },
+  };
+}

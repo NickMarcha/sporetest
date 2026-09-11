@@ -9,7 +9,7 @@
     "build": "astro build",
     "preview": "astro preview --host 127.0.0.1",
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/creature/creature.test.ts src/field/field.test.ts src/mesh/mesh.test.ts"
+    "test": "node --test src/creature/creature.test.ts src/field/field.test.ts src/mesh/mesh.test.ts src/rig/rig.test.ts src/anim/pose.test.ts"
   },
   "dependencies": {
     "astro": "7.2.7",

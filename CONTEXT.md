@@ -57,13 +57,19 @@ A **rig** is a skeleton plus the weights that bind skin to it.
 
 A **bone** derives from a vertebra, a limb segment, or a part — one bone each. Bones are not vertebrae. They share positions at rest and diverge the moment anything moves, and code that conflates them will produce a creature that looks correct standing still.
 
-**Weights** are per-vertex bone influences. They come from provenance, normalised, then smoothed across mesh adjacency. Smoothing remains the binding decision. Hecker documents torso shear from raw provenance, but does not establish that our adjacency pass will fix it. Bent spines, heavy torsos, and torso-attached parts must be checked together when binding is implemented.
+The implemented spine rig has one bone per vertebra, including coincident vertebrae. The head is the root; each later bone is parented to the preceding bone. Stable bone identifiers derive from authored source identifiers. Rest transforms use authored positions and orientations. Local, creature-space, and inverse-bind matrices are column-major arrays, separate from the authored creature.
+
+**Weights** are per-vertex bone influences. Binding resolves provenance identifiers to bones and normalises the source density. Four Jacobi passes then blend half the current weights with half the mean of adjacent vertices. Disconnected surfaces do not exchange weights. The editor exposes the pass count, including zero for comparison with raw provenance. The core retains all influences in sparse arrays; the Three.js adapter keeps the strongest four and renormalises them. The editor reports the largest discarded fraction at any vertex.
+
+Hecker documents torso shear from raw provenance, but does not establish that our adjacency pass will fix it. Bent spines, heavy torsos, and torso-attached parts must be checked together as those features arrive. The current bend preview makes smoothing inspectable; it does not establish binding quality for arbitrary creatures.
 
 Bones are not solver particles. The IK solver allocates particles where it needs them, which is far fewer places than there are bones. Keeping these two populations distinct is what makes a forty-vertebra torso affordable.
 
 ## Pose and motion
 
 A **pose** is bone transforms at one instant. It is the output of animation and the input to rendering, and it is the only thing that crosses between them.
+
+The current pose implementation composes local transforms through the bone hierarchy and multiplies by inverse-bind transforms for skinning. It reuses allocated matrix buffers. A diagnostic bend distributes local Z rotation by incoming rest-segment length, leaving the root fixed. Single-vertebra and fully coincident spines remain at rest. This preview is forward kinematics, not an action, an IK solver, or a gait. It never mutates the creature or its recipe.
 
 Motion is produced by two systems that do not know about each other.
 

@@ -20,9 +20,9 @@ So: **the rigging and animation architecture is the deliverable.** Every layer b
 
 Design is settled. `CONTEXT.md` holds the domain model, and `docs/adr/` records the five decisions that would be expensive to reverse. Read both before you write anything.
 
-The first slice implements the spine editor and mesher: drag vertebrae, adjust radii, and watch a skin appear. Recipes can be downloaded as JSON. Skin already carries authored-source provenance and analytic field normals. Rigging comes next; parts, binding, IK, and gait are not implemented yet.
+The editor meshes an authored spine, derives its bones, and binds the skin from field provenance with adjacency smoothing. A bend preview exercises the binding without changing the creature. Recipes can be downloaded as JSON. Parts, IK, and gait are not implemented yet.
 
-Meshing runs in a worker on edits, with one in-flight request and the newest pending edit. The surface-nets package currently rebuilds the full sampled grid. This is the measured baseline before incremental remeshing.
+Meshing and binding run in a worker on edits, with one in-flight request and the newest pending edit. Changing smoothing reuses the skin and only rebinds. Posing runs per frame with reused buffers and GPU skinning. The surface-nets package currently rebuilds the full sampled grid. This is the measured baseline before incremental remeshing.
 
 Nothing here is shipped. See the note on backward compatibility below, which says exactly when that changes.
 
@@ -138,7 +138,7 @@ Three.js is the deliberate application of "lean on established libraries". Writi
 
 ## Where code will live
 
-The first slice contains `creature/`, `field/`, `mesh/`, `render/`, `editor/`, and `pages/`. The remaining directories below are planned.
+All directories below exist. `rig/` implements spine binding; `anim/` implements pose evaluation and the bend diagnostic. Gait and IK remain planned.
 
 ```
 src/

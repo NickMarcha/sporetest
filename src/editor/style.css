@@ -8,6 +8,23 @@
   --line:#dddfd4;
   --accent:#db6a3a
 }
+.rig-explanation {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+.rig-range { margin-top: 18px; }
+.binding-metrics {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font: 9px monospace;
+  color: var(--muted);
+}
+.binding-metrics b { color: var(--ink); font-weight: 400; }
+.rig-section { grid-column: 1 / -1; }
+input:disabled { opacity: 0.4; cursor: default; }
 * {
   box-sizing:border-box
 }

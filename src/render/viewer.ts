@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { Creature, Position } from '../creature/creature.ts';
 import type { Skin } from '../mesh/mesh.ts';
+import type { Rig } from '../rig/rig.ts';
+import { createRigView } from './rig-view.ts';
 
 export function createViewer(host: HTMLElement, events: {
   select: (id: string) => void;
@@ -33,8 +35,7 @@ export function createViewer(host: HTMLElement, events: {
   fill.position.set(4, 1, -4);
   scene.add(fill);
   const material = new THREE.MeshStandardMaterial({ color: '#91ae9e', roughness: 0.67, metalness: 0.02 });
-  const skinMesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
-  scene.add(skinMesh);
+  let rigView: ReturnType<typeof createRigView> | null = null;
   const grid = new THREE.GridHelper(30, 30, '#bac1b6', '#d1d6cb');
   grid.position.y = -1.05;
   grid.material.transparent = true;
@@ -47,6 +48,7 @@ export function createViewer(host: HTMLElement, events: {
   const selectedMaterial = new THREE.MeshBasicMaterial({ color: '#db6a3a', depthTest: false });
   const lineMaterial = new THREE.LineBasicMaterial({ color: '#f4f5eb', depthTest: false, transparent: true, opacity: 0.75 });
   const spineLine = new THREE.Line(new THREE.BufferGeometry(), lineMaterial);
+  spineLine.frustumCulled = false;
   spineLine.renderOrder = 2;
   scene.add(spineLine);
   const raycaster = new THREE.Raycaster();
@@ -59,6 +61,10 @@ export function createViewer(host: HTMLElement, events: {
   let pointerId = -1;
   let shown = true;
   let frame = 0;
+  let previewAngle: number | null = null;
+  let sweep = false;
+  let phase = 0;
+  let lastTime = performance.now();
 
   function updateRay(event: PointerEvent) {
     const rect = renderer.domElement.getBoundingClientRect();
@@ -66,7 +72,7 @@ export function createViewer(host: HTMLElement, events: {
     raycaster.setFromCamera(pointer, camera);
   }
   function pointerDown(event: PointerEvent) {
-    if (event.button !== 0 || !shown) return;
+    if (event.button !== 0 || !shown || previewAngle !== null) return;
     updateRay(event);
     const hit = raycaster.intersectObjects(handles.children, false)[0];
     if (!hit) return;
@@ -113,7 +119,19 @@ export function createViewer(host: HTMLElement, events: {
     camera.updateProjectionMatrix();
   });
   resize.observe(host);
-  function draw() {
+  function draw(time = performance.now()) {
+    const delta = Math.min(0.1, Math.max(0, (time - lastTime) / 1000));
+    lastTime = time;
+    if (rigView && previewAngle !== null) {
+      if (sweep) phase = (phase + delta / 4) % 1;
+      rigView.bend(previewAngle * (sweep ? Math.sin(phase * Math.PI * 2) : 1));
+      const attribute = spineLine.geometry.getAttribute('position');
+      if (attribute && attribute.count === rigView.positions.length / 3) {
+        (attribute.array as Float32Array).set(rigView.positions);
+        attribute.needsUpdate = true;
+        for (let index = 0; index < handles.children.length; index++) handles.children[index].position.fromArray(rigView.positions, index * 3);
+      }
+    }
     orbit.update();
     renderer.render(scene, camera);
     frame = requestAnimationFrame(draw);
@@ -146,21 +164,25 @@ export function createViewer(host: HTMLElement, events: {
 
   return {
     setCreature,
-    setSkin(skin: Skin) {
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.BufferAttribute(skin.positions, 3));
-      geometry.setAttribute('normal', new THREE.BufferAttribute(skin.normals, 3));
-      geometry.setIndex(new THREE.BufferAttribute(skin.triangles, 1));
-      geometry.computeBoundingSphere();
-      geometry.computeBoundingBox();
-      skinMesh.geometry.dispose();
-      skinMesh.geometry = geometry;
-      grid.position.y = (geometry.boundingBox?.min.y ?? -1) - 0.08;
+    setSkin(skin: Skin, rig: Rig) {
+      if (rigView) { scene.remove(rigView.mesh); rigView.dispose(); }
+      rigView = createRigView(skin, rig, material);
+      scene.add(rigView.mesh);
+      grid.position.y = (rigView.mesh.geometry.boundingBox?.min.y ?? -1) - 0.08;
+      return rigView.maximumDiscarded;
+    },
+    preview(angle: number | null, animate: boolean) {
+      previewAngle = angle;
+      sweep = animate;
+      if (angle === null) { phase = 0; rigView?.bend(0); }
     },
     wireframe(value: boolean) { material.wireframe = value; },
     showSpine(value: boolean) { shown = value; handles.visible = value; spineLine.visible = value; },
     frameCreature() {
-      const bounds = new THREE.Box3().setFromObject(skinMesh);
+      if (!rigView) return;
+      rigView.mesh.updateMatrixWorld(true);
+      rigView.mesh.computeBoundingBox();
+      const bounds = rigView.mesh.boundingBox!;
       if (bounds.isEmpty()) return;
       const center = bounds.getCenter(new THREE.Vector3());
       const size = bounds.getSize(new THREE.Vector3()).length();
@@ -178,7 +200,7 @@ export function createViewer(host: HTMLElement, events: {
       renderer.domElement.removeEventListener('pointerup', pointerEnd);
       renderer.domElement.removeEventListener('pointercancel', pointerEnd);
       renderer.domElement.removeEventListener('lostpointercapture', pointerEnd);
-      skinMesh.geometry.dispose();
+      rigView?.dispose();
       spineLine.geometry.dispose();
       handleGeometry.dispose();
       grid.geometry.dispose();

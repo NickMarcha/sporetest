@@ -61,7 +61,7 @@ test('small edits move skin even without requiring a topology change', () => {
 });
 
 test('pure core imports no renderer or browser layer', () => {
-  for (const folder of ['creature', 'field', 'mesh']) {
+  for (const folder of ['creature', 'field', 'mesh', 'rig', 'anim']) {
     const directory = new URL(`../${folder}/`, import.meta.url);
     for (const file of readdirSync(directory).filter(name => name.endsWith('.ts') && !name.endsWith('.test.ts'))) {
       const source = readFileSync(new URL(file, directory), 'utf8');

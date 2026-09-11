@@ -14,7 +14,7 @@ import '../editor/style.css';
   <body>
     <header class="topbar">
       <a class="brand" href="/" aria-label="SporeTest home"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 24C0 18 3 7 12 5s20 6 17 14-15 11-22 5Z" fill="currentColor"/><circle cx="12" cy="14" r="2" fill="#f6f5ef"/><circle cx="21" cy="17" r="2" fill="#f6f5ef"/></svg>spore<span>test</span></a>
-      <div class="project-label">CREATURE WORKSHOP <span>01 / SPINE & SKIN</span></div>
+      <div class="project-label">CREATURE WORKSHOP <span>02 / SKIN & RIG</span></div>
       <button id="save" class="button primary">Save recipe <span aria-hidden="true">↗</span></button>
     </header>
     <main class="workspace">
@@ -51,15 +51,27 @@ import '../editor/style.css';
           <label class="toggle"><input id="wireframe" type="checkbox"/><span>Wireframe</span></label>
           <div class="resolution"><label for="resolution">Skin detail</label><select id="resolution"><option value="3">Draft</option><option value="4" selected>Balanced</option><option value="6">Fine</option></select></div>
         </section>
+        <section class="rig-section">
+          <div class="section-heading"><h2>Binding check</h2><span id="bone-count">Building rig…</span></div>
+          <p class="rig-explanation">Bend the skeleton to inspect how the skin follows.</p>
+          <label class="toggle"><input id="preview-pose" type="checkbox"/><span>Preview pose</span></label>
+          <div class="range-label rig-range"><label for="bend">Bend</label><output id="bend-output" for="bend">45°</output></div>
+          <input id="bend" type="range" min="-90" max="90" step="1" value="45" disabled/>
+          <label class="toggle"><input id="sweep" type="checkbox" disabled/><span>Sweep through the bend</span></label>
+          <div class="range-label rig-range"><label for="smoothing">Weight smoothing</label><output id="smoothing-output" for="smoothing">4 passes</output></div>
+          <input id="smoothing" type="range" min="0" max="12" step="1" value="4"/>
+          <p class="rig-explanation">Zero passes shows raw provenance. Posing never remeshes; smoothing only rebinds.</p>
+          <div class="binding-metrics"><span>Bind <b id="bind-time">—</b></span><span title="Largest weight fraction discarded at any vertex when retaining four GPU influences">GPU reduction <b id="discarded">—</b></span></div>
+        </section>
         <div class="sidebar-foot"><span class="small-dot"></span> Handmade by you. Meshed by maths.</div>
       </aside>
       <section id="viewport" aria-label="Creature workshop">
         <div class="viewport-top"><div class="specimen"><span class="eyebrow">UNTITLED CREATURE</span><span>Study no. 001</span></div><div class="view-actions"><button class="icon-button" id="undo" title="Undo" aria-label="Undo" disabled>↶</button><button class="icon-button" id="redo" title="Redo" aria-label="Redo" disabled>↷</button><span class="divider"></span><button class="button glass" id="frame">Frame creature</button><button class="icon-button" id="reset" title="Start over" aria-label="Start over">⟲</button></div></div>
         <div id="error" class="error" role="alert" hidden></div>
-        <div class="viewport-bottom"><div class="hint"><span class="hint-mark" aria-hidden="true">✳</span><div><strong>Pull a point. Change a creature.</strong><span>Drag a vertebra to shape · Drag the background to orbit · Scroll to zoom</span></div></div><span class="axis-key">Y UP <span>·</span> METRES</span></div>
+        <div class="viewport-bottom"><div class="hint"><span class="hint-mark" aria-hidden="true">✳</span><div><strong id="viewport-hint">Pull a point. Change a creature.</strong><span id="viewport-help">Drag a vertebra to shape · Drag the background to orbit · Scroll to zoom</span></div></div><span class="axis-key">Y UP <span>·</span> METRES</span></div>
       </section>
     </main>
-    <footer class="statusbar"><div><span class="small-dot"></span><span id="status" role="status">Starting…</span></div><div class="metrics"><span><b id="triangles">—</b> triangles</span><span>Mesh <b id="mesh-time">—</b></span><span>Cell <b id="cell-size">—</b></span><span>Builds <b id="builds">0</b></span></div><span class="stage-label">SPINE → FIELD → SKIN</span></footer>
+    <footer class="statusbar"><div><span class="small-dot"></span><span id="status" role="status">Starting…</span></div><div class="metrics"><span><b id="triangles">—</b> triangles</span><span>Mesh <b id="mesh-time">—</b></span><span>Cell <b id="cell-size">—</b></span><span>Builds <b id="builds">0</b></span></div><span class="stage-label">SPINE → SKIN → RIG → POSE</span></footer>
     <script>
       import '../editor/bootstrap.ts';
     </script>
