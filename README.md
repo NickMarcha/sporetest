@@ -25,6 +25,8 @@ Enable Preview pose to bend the bound skin. Limb flex rotates each limb bone ind
 
 Choose IK above the viewport and drag the orange head or tail target to pose the spine. Feet and graspers also get targets when attached. The spine responds first, then limbs reach from its posed attachment points. The head drives the root; unreachable tail or limb targets remain visible beyond the creature's reach. Each target moves independently, including targets on mirrored limbs. Limb segment lengths stay fixed; the spine permits bounded compression and stretch between its solver particles. Choose Shape to return to the authored creature. Preview IK in the sidebar controls the same mode. Target movement does not remesh, create Undo steps, or alter the recipe.
 
+Choose Stand after adding feet to inspect static floor contact. The controller uses the generated foot skin to place targets on the grid floor, then adjusts body height and foot targets. Green rings mark contact within one centimetre; orange rings mark a miss. The viewport reports the contact count and largest vertical error. The floor stays fixed while posing. Shape restores the authored creature. Standing is not balance simulation or walking, and unusual creatures may have unreachable contacts.
+
 The status bar reports worker meshing time, triangle count, actual grid cell size, and completed builds. Camera motion, selection, colour changes, posing, and smoothing do not trigger meshing. Binding has a separate timing display. Timings exclude transfer and rendering, so they are not end-to-end input-latency measurements. GPU reduction reports the greatest fraction of weight discarded at a vertex when packing four influences for Three.js.
 
 ## Verify

@@ -27,6 +27,7 @@ export function mountEditor() {
   let selected = creature.spine[2].id;
   let selectedSegment: string | null = null;
   let placementTool: PlacementTool | null = null;
+  let standingPreview = false;
   let revision = 0;
   let busy = false;
   let queued: MeshRequest | null = null;
@@ -102,6 +103,8 @@ export function mountEditor() {
         element('#bone-count').textContent = `${response.rig.bones.length} ${response.rig.bones.length === 1 ? 'bone' : 'bones'}`;
         ikPreview.disabled = false;
         element<HTMLButtonElement>('#tool-ik').disabled = ikPreview.disabled;
+        element<HTMLButtonElement>('#tool-stand').disabled = !response.rig.bones.some(bone => bone.cap === 'foot');
+        if (standingPreview) updatePreview();
         element('#bind-time').textContent = `${response.bindMilliseconds.toFixed(1)} ms`;
         element('#discarded').textContent = `${(discarded * 100).toFixed(2)}%`;
         status.textContent = 'Ready';
@@ -144,7 +147,8 @@ export function mountEditor() {
     if (preview.checked || ikPreview.checked) placementTool = null;
     updatePlacementControls();
     viewer.preview(preview.checked ? Number(bend.value) * Math.PI / 180 : null, sweep.checked, Number(limbBend.value) * Math.PI / 180);
-    viewer.ik(ikPreview.checked);
+    viewer.ik(ikPreview.checked && !standingPreview);
+    const standing = viewer.stand(standingPreview);
     element<HTMLOutputElement>('#limb-bend-output').value = `${limbBend.value}°`;
     limbBend.disabled = !preview.checked;
     element<HTMLOutputElement>('#bend-output').value = `${bend.value}°`;
@@ -153,19 +157,20 @@ export function mountEditor() {
     radius.disabled = preview.checked || ikPreview.checked;
     coordinates.forEach(input => { input.disabled = preview.checked || ikPreview.checked; });
     element<HTMLButtonElement>('#add').disabled = preview.checked || ikPreview.checked;
-    element('#viewport-hint').textContent = ikPreview.checked ? 'Reach for a target.' : preview.checked ? 'Inspect the bend. The skin stays bound.' : 'Pull a point. Change a creature.';
-    element('#viewport-help').textContent = ikPreview.checked ? 'Drag orange targets to pose · Drag the background to orbit · Shape returns to editing' : preview.checked ? 'Use Bend to pose · Drag the background to orbit · Return to shaping to edit' : 'Drag a point to shape · Drag the background to orbit · Scroll to zoom';
+    element('#viewport-hint').textContent = standing ? `${standing.grounded}/${standing.total} feet touching the floor` : ikPreview.checked ? 'Reach for a target.' : preview.checked ? 'Inspect the bend. The skin stays bound.' : 'Pull a point. Change a creature.';
+    element('#viewport-help').textContent = standing ? `Largest contact error ${standing.error.toFixed(3)} m · Green rings mark contact · Balance and stepping come later` : ikPreview.checked ? 'Drag orange targets to pose · Drag the background to orbit · Shape returns to editing' : preview.checked ? 'Use Bend to pose · Drag the background to orbit · Return to shaping to edit' : 'Drag a point to shape · Drag the background to orbit · Scroll to zoom';
     updateControls();
   }
   function selectVertebra(id: string) { selected = id; selectedSegment = null; updateControls(); }
   function updatePlacementControls() {
     viewer.placement(placementTool);
-    for (const mode of ['shape', 'arm', 'leg', 'ik']) element(`#tool-${mode}`).setAttribute('aria-pressed', String(mode === (ikPreview.checked ? 'ik' : preview.checked ? 'preview' : placementTool?.kind ?? 'shape')));
+    for (const mode of ['shape', 'arm', 'leg', 'ik', 'stand']) element(`#tool-${mode}`).setAttribute('aria-pressed', String(mode === (standingPreview ? 'stand' : ikPreview.checked ? 'ik' : preview.checked ? 'preview' : placementTool?.kind ?? 'shape')));
     element<HTMLInputElement>('#mirror-placement').disabled = !placementTool;
-    element('#placement-hint').textContent = ikPreview.checked ? 'Drag orange targets to pose' : preview.checked ? 'Inspect the bend' : placementTool ? 'Move over the skin · Esc to cancel' : 'Drag points to shape';
+    element('#placement-hint').textContent = standingPreview ? 'Inspect foot contact · Shape to edit' : ikPreview.checked ? 'Drag orange targets to pose' : preview.checked ? 'Inspect the bend' : placementTool ? 'Move over the skin · Esc to cancel' : 'Drag points to shape';
   }
   function setPlacement(kind: 'arm' | 'leg' | null) {
     endGesture();
+    standingPreview = false;
     if (preview.checked || ikPreview.checked) { preview.checked = false; ikPreview.checked = false; updatePreview(); }
     placementTool = kind ? { kind, mirror: kind === 'leg' } : null;
     element<HTMLInputElement>('#mirror-placement').checked = placementTool?.mirror ?? false;
@@ -186,7 +191,7 @@ export function mountEditor() {
   function mutate(change: Mutation | Mutation[]) {
     const changes = Array.isArray(change) ? change : [change];
     try {
-      if ((preview.checked || ikPreview.checked) && changes.some(mutation => mutation.type !== 'color')) { preview.checked = false; ikPreview.checked = false; updatePreview(); }
+      if ((preview.checked || ikPreview.checked) && changes.some(mutation => mutation.type !== 'color')) { preview.checked = false; ikPreview.checked = false; standingPreview = false; updatePreview(); }
       const next = changes.reduce(applyMutation, creature);
       creature = next;
       if (gestureBase) {
@@ -205,6 +210,7 @@ export function mountEditor() {
     }
   }
   function restoreHistory() {
+    standingPreview = false;
     selectedSegment = null;
     placementTool = null; updatePlacementControls();
     preview.checked = false;
@@ -225,7 +231,8 @@ export function mountEditor() {
   });
   for (const kind of ['arm', 'leg'] as const) on(element(`#tool-${kind}`), 'click', () => setPlacement(kind));
   on(element('#tool-shape'), 'click', () => setPlacement(null));
-  on(element('#tool-ik'), 'click', () => { endGesture(); ikPreview.checked = !ikPreview.checked; preview.checked = false; updatePreview(); });
+  on(element('#tool-ik'), 'click', () => { endGesture(); ikPreview.checked = standingPreview || !ikPreview.checked; standingPreview = false; preview.checked = false; updatePreview(); });
+  on(element('#tool-stand'), 'click', () => { endGesture(); standingPreview = !standingPreview; ikPreview.checked = standingPreview; preview.checked = false; updatePreview(); });
   on(element<HTMLInputElement>('#mirror-placement'), 'change', event => {
     if (placementTool) { placementTool.mirror = (event.target as HTMLInputElement).checked; updatePlacementControls(); }
   });
@@ -264,6 +271,7 @@ export function mountEditor() {
   on(element('#undo'), 'click', () => { endGesture(); const step = history.pop(); if (step) { undone.push(step); restoreHistory(); } });
   on(element('#redo'), 'click', () => { const step = undone.pop(); if (step) { history.push(step); restoreHistory(); } });
   on(element('#reset'), 'click', () => {
+    standingPreview = false;
     selectedSegment = null; placementTool = null; updatePlacementControls();
     preview.checked = false;
     ikPreview.checked = false;
@@ -287,8 +295,8 @@ export function mountEditor() {
   on(element<HTMLInputElement>('#wireframe'), 'change', event => viewer.wireframe((event.target as HTMLInputElement).checked));
   on(element<HTMLInputElement>('#show-spine'), 'change', event => viewer.showSpine((event.target as HTMLInputElement).checked));
   on(resolution, 'change', remesh);
-  on(preview, 'change', () => { endGesture(); if (preview.checked) ikPreview.checked = false; updatePreview(); });
-  on(ikPreview, 'change', () => { endGesture(); if (ikPreview.checked) preview.checked = false; updatePreview(); });
+  on(preview, 'change', () => { endGesture(); standingPreview = false; if (preview.checked) ikPreview.checked = false; updatePreview(); });
+  on(ikPreview, 'change', () => { endGesture(); standingPreview = false; if (ikPreview.checked) preview.checked = false; updatePreview(); });
   on(bend, 'input', updatePreview);
   on(limbBend, 'input', updatePreview);
   on(sweep, 'change', updatePreview);

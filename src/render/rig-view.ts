@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createPose, writeBendPose } from '../anim/pose.ts';
 import { createIK, solveIK } from '../anim/ik.ts';
+import { createStanding, writeStandingPose } from '../anim/standing.ts';
 import { packWeights } from '../rig/weights.ts';
 import type { Rig } from '../rig/rig.ts';
 import type { Skin } from '../mesh/mesh.ts';
@@ -36,6 +37,7 @@ export function createRigView(skin: Skin, rig: Rig, material: THREE.MeshStandard
   const pose = createPose(rig.bones);
   const ik = createIK(rig.bones);
   const targets = ik.targets;
+  const stance = createStanding(skin, rig);
   const positions = new Float32Array(bones.length * 3);
   const edges = rig.bones.flatMap((bone, index) => bone.kind !== 'limb' || bone.parent < 0 ? [] : [bone.parent, index]);
   const linePositions = new Float32Array(edges.length * 3);
@@ -68,6 +70,8 @@ export function createRigView(skin: Skin, rig: Rig, material: THREE.MeshStandard
   return {
     mesh, overlay, positions, bend,
     targets, goals: ik.goals,
+    stance,
+    stand(floorY: number) { writeStandingPose(skin, rig, stance, floorY, pose); update(); return stance; },
     solve() {
       solveIK(rig.bones, ik, pose);
       update();

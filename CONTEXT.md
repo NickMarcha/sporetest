@@ -107,6 +107,14 @@ Each intervening span uses a quintic Hermite curve fitted per rig with fixed end
 
 The spine uses 32 iterations, followed by outward projection onto its permitted chord ranges. A smooth angular anti-buckling weight compares neighbouring chords against the root-relative rest shape and pulls folding attachment regions toward that reference. The gains, derivative regularisation, and finite-difference endpoint tangents are our initial tuning choices. The 10–120% limits apply to reduced chords, not every reconstructed vertebra spacing. This is a positional IK baseline, not a guarantee against self-intersection or implausible poses. The limb phase then freezes the reconstructed spine and uses the existing solver. Both phases restart from rest relative to the requested root, reuse buffers, and leave the recipe and skin topology unchanged.
 
+### Standing and foot contact
+
+The static standing controller derives a **foot contact patch** from generated skin vertices whose largest binding influence belongs to a foot-capped bone. It measures the lowest posed point in each patch using the full sparse binding. A **standing floor** is a horizontal plane supplied in creature-space metres. The viewer uses the grid height established by the last skin build and keeps it fixed during posing.
+
+The highest rest sole sets initial body height, so shorter legs do not start above the floor. The controller keeps foot targets at their authored horizontal positions, places their vertical targets using skin clearance, and solves both IK phases. It corrects targets against measured posed contact error and can lower an overextended body. The body-height adjustment is bounded by rest torso clearance. Up to 24 correction passes run when standing inputs change, not on idle render frames. This resets from authored targets on every invocation, leaving the creature and recipe untouched.
+
+The preview reports contact within one centimetre and marks misses rather than claiming every morphology can stand. Feet with no identifiable skin patch are unsupported. Contact uses the full core weights, so GPU influence reduction can introduce a small visual discrepancy. Rest torso clearance is not posed-body collision detection. This controller does not solve balance, support polygons, non-horizontal terrain, self-intersection, or walking. A separate attached tail also remains an editor feature to add; the current tail target controls the torso's spine endpoint.
+
 Motion is produced by two systems that do not know about each other.
 
 **Gait** synthesises locomotion. Legs are clustered into **leg groups** by length; groups are harmonised by approximating their length ratios as small whole numbers, which is what keeps mismatched legs from looking broken. Each foot has a **duty factor**, the fraction of the cycle it spends planted, and a **step trigger**, its offset within the cycle. One normalised flight path, scaled by leg length, serves every foot.

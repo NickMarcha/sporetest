@@ -58,6 +58,12 @@ export function createViewer(host: HTMLElement, events: {
   const targetGeometry = new THREE.SphereGeometry(0.095, 12, 8);
   const targetMaterial = new THREE.MeshBasicMaterial({ color: '#db6a3a', wireframe: true, depthTest: false });
   let ikMode = false;
+  let standingMode = false;
+  const contacts = new THREE.Group();
+  scene.add(contacts);
+  const contactGeometry = new THREE.RingGeometry(0.11, 0.15, 24);
+  const contactMaterial = new THREE.MeshBasicMaterial({ color: '#527b60', side: THREE.DoubleSide });
+  const missedContactMaterial = new THREE.MeshBasicMaterial({ color: '#db6a3a', side: THREE.DoubleSide });
   let draggingGoal = -1;
   const handleGeometry = new THREE.SphereGeometry(0.066, 16, 12);
   const normalMaterial = new THREE.MeshBasicMaterial({ color: '#f7f6eb', depthTest: false });
@@ -91,7 +97,7 @@ export function createViewer(host: HTMLElement, events: {
     raycaster.setFromCamera(pointer, camera);
   }
   function pointerDown(event: PointerEvent) {
-    if (event.button !== 0 || previewAngle !== null) return;
+    if (event.button !== 0 || previewAngle !== null || standingMode) return;
     updateRay(event);
     if (ikMode) {
       const hit = raycaster.intersectObjects(targets.children, false)[0];
@@ -197,9 +203,9 @@ export function createViewer(host: HTMLElement, events: {
   function draw(time = performance.now()) {
     const delta = Math.min(0.1, Math.max(0, (time - lastTime) / 1000));
     lastTime = time;
-    if (rigView && (previewAngle !== null || ikMode)) {
+    if (rigView && (previewAngle !== null || ikMode || standingMode)) {
       if (ikMode) rigView.solve();
-      else {
+      else if (!standingMode) {
         if (sweep) phase = (phase + delta / 4) % 1;
         const amount = sweep ? Math.sin(phase * Math.PI * 2) : 1;
         rigView.bend(previewAngle! * amount, limbAngle * amount);
@@ -236,8 +242,8 @@ export function createViewer(host: HTMLElement, events: {
       const handle = handles.children[index] as THREE.Mesh;
       handle.name = vertebra.id;
       handle.position.fromArray(vertebra.position);
-      handle.material = !ikMode && vertebra.id === selectedId ? selectedMaterial : normalMaterial;
-      handle.scale.setScalar(!ikMode && vertebra.id === selectedId ? 1.4 : 1);
+      handle.material = !ikMode && !standingMode && vertebra.id === selectedId ? selectedMaterial : normalMaterial;
+      handle.scale.setScalar(!ikMode && !standingMode && vertebra.id === selectedId ? 1.4 : 1);
     });
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(creature.spine.flatMap(vertebra => vertebra.position), 3));
@@ -245,8 +251,24 @@ export function createViewer(host: HTMLElement, events: {
     spineLine.geometry = geometry;
   }
 
+  function stand(value: boolean) {
+    standingMode = value; contacts.visible = value;
+    if (!rigView) return;
+    if (!value) return;
+    const stance = rigView.stand(grid.position.y);
+    contacts.clear();
+    stance.contacts.forEach((_, index) => {
+      const marker = new THREE.Mesh(contactGeometry, Math.abs(stance.gaps[index]) <= 0.01 ? contactMaterial : missedContactMaterial);
+      marker.rotation.x = -Math.PI / 2;
+      marker.position.fromArray(stance.contactPositions, index * 3); marker.position.y += 0.003;
+      contacts.add(marker);
+    });
+    return { total: stance.contacts.length + stance.unsupported, grounded: stance.grounded, error: stance.maximumError };
+  }
+
   return {
     setCreature,
+    stand,
     placement(tool: PlacementTool | null) {
       placementTool = tool; placement.hide();
       placement.active(!!tool);
@@ -269,6 +291,7 @@ export function createViewer(host: HTMLElement, events: {
       scene.add(rigView.mesh, rigView.overlay);
       rigView.overlay.visible = shown;
       grid.position.y = (rigView.mesh.geometry.boundingBox?.min.y ?? -1) - 0.08;
+      stand(standingMode);
       return rigView.maximumDiscarded;
     },
     preview(angle: number | null, animate: boolean, limbRadians = 0) {
@@ -314,6 +337,7 @@ export function createViewer(host: HTMLElement, events: {
       spineLine.geometry.dispose();
       handleGeometry.dispose();
       targetGeometry.dispose(); targetMaterial.dispose();
+      contactGeometry.dispose(); contactMaterial.dispose(); missedContactMaterial.dispose();
       grid.geometry.dispose();
       grid.material.dispose();
       material.dispose(); normalMaterial.dispose(); selectedMaterial.dispose(); lineMaterial.dispose();

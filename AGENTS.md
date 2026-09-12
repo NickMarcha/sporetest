@@ -140,7 +140,7 @@ Three.js is the deliberate application of "lean on established libraries". Writi
 
 ## Where code will live
 
-All directories below exist. `rig/` implements spine and limb binding; `anim/` implements pose evaluation, bend diagnostics, and both phases of Particle IK. Constraint tuning, orientation goals, secondary motion, and gait remain planned.
+All directories below exist. `rig/` implements spine and limb binding; `anim/` implements pose evaluation, bend diagnostics, both phases of Particle IK, and a static standing controller with measured foot contact. Constraint tuning, balance, orientation goals, secondary motion, and gait remain planned.
 
 ```
 src/
