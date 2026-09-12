@@ -24,6 +24,17 @@
 }
 .binding-metrics b { color: var(--ink); font-weight: 400; }
 .rig-section { grid-column: 1 / -1; }
+.limb-section { grid-column: 1 / -1; }
+.placement-toolbar { position: absolute; top: 86px; left: 24px; right: 24px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; z-index: 5; pointer-events: none; }
+.placement-toolbar > * { pointer-events: auto; }
+.placement-toolbar .button { background: #f6f5ef; }
+.placement-toolbar .button[aria-pressed="true"], .placement-toolbar .button[aria-pressed="true"]:hover { background: #344e40; color: #fff; }
+.placement-toolbar .toggle { margin: 0; padding: 8px; background: #f6f5ef; border-radius: 6px; }
+#placement-hint { font-size: 11px; color: #4c6153; background: #f6f5efdd; padding: 8px; border-radius: 6px; pointer-events: none; }
+.limb-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.limb-label { display: grid; gap: 7px; font-size: 11px; margin: 14px 0; }
+.limb-label select, .limb-label input { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: #fafaf5; color: var(--ink); }
+.limb-fields .button-row { margin: 14px 0; }
 input:disabled { opacity: 0.4; cursor: default; }
 * {
   box-sizing:border-box

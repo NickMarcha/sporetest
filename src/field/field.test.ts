@@ -5,7 +5,7 @@ import type { Creature, Position } from '../creature/creature.ts';
 import { createField, evaluateField, evaluateNormal, evaluateProvenance, ISOVALUE } from './field.ts';
 
 function chain(positions: Position[], radius = 0.5): Creature {
-  return { skinColor: '#aabbcc', spine: positions.map((position, index) => ({ id: `v${index}`, position, radius, orientation: [0, 0, 0, 1] })) };
+  return { parts: [], mirrorPairs: [], skinColor: '#aabbcc', spine: positions.map((position, index) => ({ id: `v${index}`, position, radius, orientation: [0, 0, 0, 1] })) };
 }
 
 test('one vertebra has the authored radius and compact support', () => {

@@ -1,6 +1,6 @@
 # SporeTest
 
-A spine editor with a live implicit skin, automatic spine binding, and a bend preview. Rigging and pose evaluation run independently of the renderer.
+A creature editor with a live implicit skin, recursive limbs, automatic binding, and pose previews. Rigging and pose evaluation run independently of the renderer.
 
 ## Run
 
@@ -17,7 +17,13 @@ Open the local URL printed by Astro, normally `http://127.0.0.1:4321`.
 
 Drag a vertebra in the viewport or select one in the sidebar. Adjust its radius and position, add or remove vertebrae, and use Undo or Redo to revisit edits. Drag empty space to orbit; scroll to zoom. Frame creature fits the current skin into view. Save recipe downloads the base creature and ordered mutations as JSON. Loading recipes is not implemented yet; `replayRecipe` reconstructs them in the pure core.
 
-Enable Preview pose to bend the bound skin. Sweep through the bend animates a four-second cycle. Shape controls are disabled during preview; turn it off to edit again. Weight smoothing compares raw provenance with adjacency-smoothed binding and reuses the existing skin. Posing and smoothing are diagnostics and are not saved in recipes.
+Choose Leg or Arm above the viewport, move over the skin to see the ghost, then click to attach. Legs default to a mirrored pair; arms default to one limb. Toggle Mirror for either tool. The dashed centre line marks where placement snaps to a single central limb. Escape cancels placement. A successful click returns to Shape mode, and a pair is one Undo step. Mirrored limbs stay linked when you drag points, edit sockets or radii, and add or remove segments. Select Unlink pair in the Limbs sidebar for asymmetric edits. Removing a linked limb removes both sides.
+
+Drag limb points directly in the viewport, including on branches. The Limbs sidebar keeps precise segment positions and radii, segment insertion/removal, and socket offsets. Segment coordinates are in socket space; socket offsets are in the parent source's frame. Removing an attachment source removes its dependent limbs, and Undo restores them. Tip caps label future animation targets; they do not add foot or hand meshes.
+
+Enable Preview pose to bend the bound skin. Limb flex rotates each limb bone independently of the spine bend. Sweep through the bend animates a four-second cycle. Shape controls are disabled during preview; turn it off to edit again. Weight smoothing compares raw provenance with adjacency-smoothed binding and reuses the existing skin. Posing and smoothing are diagnostics and are not saved in recipes.
+
+Choose IK above the viewport after attaching a foot- or grasper-capped limb. Drag its orange target to pose the chain with the spine fixed. Each target moves independently, including targets on mirrored limbs. Unreachable targets remain visible beyond the limb's reach; segment lengths stay fixed. Choose Shape to return to the authored creature. Preview IK in the sidebar controls the same mode. Target movement does not remesh, create Undo steps, or alter the recipe.
 
 The status bar reports worker meshing time, triangle count, actual grid cell size, and completed builds. Camera motion, selection, colour changes, posing, and smoothing do not trigger meshing. Binding has a separate timing display. Timings exclude transfer and rendering, so they are not end-to-end input-latency measurements. GPU reduction reports the greatest fraction of weight discarded at a vertex when packing four influences for Three.js.
 
@@ -39,4 +45,4 @@ Visual checks should include dragging, undoing a whole drag, changing radius, in
 
 Meshing and binding run after edits, in a worker with one active request and one replaceable pending request. Smoothing changes only rebind. The frame loop evaluates preview poses into reused buffers, updates the camera, and draws. The grid currently remeshes in full. Its sample budget can coarsen unusually large creatures and lose thin features; the displayed cell size makes that limit inspectable. `surface-nets` needs a browser Buffer dependency and a build-time `global` alias, configured in `astro.config.mjs`.
 
-There are no parts, IK, or gait yet. The bend preview exercises spine binding; it does not prove automatic locomotion or binding quality for future limbs and attachments. Read [CONTEXT.md](CONTEXT.md) and [the ADRs](docs/adr/) before changing these contracts.
+Separate attached meshes, spine IK, and gait are not implemented yet. Limb IK implements aim preconditioning, shared branch particles, and rigid length correction; soft stretch limits and secondary motion remain future work. Sockets start on the picked skin. Mirrored placement uses the fixed left/right plane, and the saved link reflects subsequent edits across that plane. Unlinked sockets keep their authored offsets. Close limbs can web together in the shared field. The pose previews exercise binding; they do not prove automatic locomotion. Read [CONTEXT.md](CONTEXT.md) and [the ADRs](docs/adr/) before changing these contracts.

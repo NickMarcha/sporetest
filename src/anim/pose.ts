@@ -24,14 +24,14 @@ export function evaluatePose(bones: Bone[], pose: Pose) {
 }
 
 /** Binding diagnostic, not an action or IK solver. Radians about each bone's local +Z. */
-export function writeBendPose(bones: Bone[], radians: number, pose: Pose) {
-  if (!Number.isFinite(radians)) throw new Error('Bend angle must be finite.');
+export function writeBendPose(bones: Bone[], radians: number, pose: Pose, limbRadians = 0) {
+  if (!Number.isFinite(radians) || !Number.isFinite(limbRadians)) throw new Error('Bend angles must be finite.');
   let length = 0;
-  for (const bone of bones) if (bone.parent >= 0) length += Math.hypot(bone.restLocal[12], bone.restLocal[13], bone.restLocal[14]);
+  for (const bone of bones) if (bone.kind === 'spine' && bone.parent >= 0) length += Math.hypot(bone.restLocal[12], bone.restLocal[13], bone.restLocal[14]);
   for (let index = 0; index < bones.length; index++) {
     const bone = bones[index];
-    const fraction = bone.parent < 0 || length === 0 ? 0 : Math.hypot(bone.restLocal[12], bone.restLocal[13], bone.restLocal[14]) / length;
-    mat4.rotateZ(pose.local[index], bone.restLocal, radians * fraction);
+    const fraction = bone.kind !== 'spine' || bone.parent < 0 || length === 0 ? 0 : Math.hypot(bone.restLocal[12], bone.restLocal[13], bone.restLocal[14]) / length;
+    mat4.rotateZ(pose.local[index], bone.restLocal, bone.kind === 'limb' ? limbRadians : radians * fraction);
   }
   evaluatePose(bones, pose);
 }

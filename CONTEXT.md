@@ -21,11 +21,27 @@ A **creature** is plain serialisable data. It has no methods, no renderer types,
 
 A creature owns one **spine**: an ordered chain of **vertebrae**, running head to tail. Each vertebra is a position, a radius, and an orientation. The spine is the creature's skeleton before it is a skeleton — it is authored geometry, not a rig.
 
-Vertebrae have stable string identifiers. Recipe mutations and field provenance refer to these identifiers; inserting a vertebra does not rename its neighbours. The first slice implements spine and skin colour. The part and socket contracts below describe the subsequent slice and do not yet have TypeScript representations.
+Vertebrae have stable string identifiers. Recipe mutations and field provenance refer to these identifiers; inserting a vertebra does not rename its neighbours. The current creature contains a spine, skin colour, and recursive limb parts. Separate meshes for feet, eyes, mouths, and details are not implemented yet.
 
 A creature owns **parts**. A part is anything attached to the surface: a limb, a foot, a hand, a mouth, an eye, a decoration. Parts attach at **sockets**, and a socket is both a location and the frame that location implies. Parts are recursive, because a limb is itself a chain of segments and things hang off its end.
 
 Parts carry **caps**, which transfer to their derived bones. A cap is a semantic tag: `foot`, `grasper`, `mouth`, `eye`. Actions select targets by cap rather than hard-coded part names or indices. After selection, the solver and renderer may use resolved indices into typed arrays.
+
+### Limb and socket coordinates
+
+A limb owns an ordered chain of **limb segments**, each with a stable identifier, position, orientation, and radius. Segment transforms are authored in the limb's socket frame, not relative to the preceding segment. This lets the editor reshape a chain without rewriting every subsequent segment. A limb's optional cap transfers to its final bone. It is semantic metadata and creates no attached mesh or field density.
+
+A socket references a source in its immediate parent chain, a vertebra for a top-level limb or a segment for a nested limb. Its position and orientation are relative to that source's authored frame. Resolving the hierarchy composes these transforms into creature space. Moving or rotating the source carries the attachment; changing its radius does not scale the saved socket offset. Viewport placement picks a point on the current skin and converts it to a socket relative to the closest source by distance divided by radius. Later edits preserve that authored offset rather than continuously projecting it onto the skin.
+
+An **arm** is an editor preset for a limb capped `grasper`; the leg preset uses `foot`. Both produce ordinary limb data. Placement uses a ghost preview without meshing. Mirroring reflects across the fixed creature-space plane Z = 0. Each side raycasts the skin to check attachment availability. The second ghost is an exact reflection of the first; the opposite skin must be within its 0.25-metre root radius. Within 0.14 metres of the plane, placement tries a centre-plane raycast and emits one limb when the intersection is nearby. A dashed skin intersection marks this plane. Arms default to mirroring off and legs default to mirroring on.
+
+Placing a pair records one `attach-pair` mutation and a **mirror pair**, two stable limb identifiers saved in the creature. Editing either side reflects its socket and segment rest transforms across creature-space Z = 0 into the partner's attachment frame. Radii, tip caps, segment insertion, and segment removal stay synchronized. Surviving segment identifiers are preserved. Pair dependencies follow attachment ancestry, so parent edits synchronize before nested pairs regardless of JSON array order. Links that create cyclic dependencies are invalid.
+
+Removing a linked limb removes both sides and their dependent branches. Removing an attachment source likewise prunes affected pairs. The `unlink` mutation keeps both limbs and removes their link, permitting asymmetric edits. Mirror links affect authored data per edit; the rig and animation still receive individual limbs with no assumption about symmetry. Viewport dragging converts creature-space positions back into the selected segment's socket frame. Picking is disabled while the displayed skin is waiting for a geometry rebuild and during pose preview.
+
+The field adds a buried connector from the parent source centre to the limb's first segment, using the first segment's radius. The connector blends provenance between parent and limb. Each limb then uses the same continuous-chain field as the spine. Nearby limbs can web together, as described in ADR 0002.
+
+Part and source identifiers are globally unique within a creature. A child socket cannot reference a sibling or its own descendants. Removing a vertebra removes its attached limbs and their descendants. Removing a limb removes its subtree; the editor likewise removes attachments on a deleted segment. Undo restores the complete previous subtree through recipe replay.
 
 ### What is deliberately absent
 
@@ -57,7 +73,7 @@ A **rig** is a skeleton plus the weights that bind skin to it.
 
 A **bone** derives from a vertebra, a limb segment, or a part — one bone each. Bones are not vertebrae. They share positions at rest and diverge the moment anything moves, and code that conflates them will produce a creature that looks correct standing still.
 
-The implemented spine rig has one bone per vertebra, including coincident vertebrae. The head is the root; each later bone is parented to the preceding bone. Stable bone identifiers derive from authored source identifiers. Rest transforms use authored positions and orientations. Local, creature-space, and inverse-bind matrices are column-major arrays, separate from the authored creature.
+The rig has one bone per vertebra and limb segment, including coincident sources. The head is the root; each later spine bone is parented to the preceding spine bone. A limb's first bone is parented to its socket source's bone; subsequent bones follow its chain. Parents always precede children. Stable bone identifiers derive from authored source identifiers. Rest transforms use resolved positions and orientations. Local, creature-space, and inverse-bind matrices are column-major arrays, separate from the authored creature.
 
 **Weights** are per-vertex bone influences. Binding resolves provenance identifiers to bones and normalises the source density. Four Jacobi passes then blend half the current weights with half the mean of adjacent vertices. Disconnected surfaces do not exchange weights. The editor exposes the pass count, including zero for comparison with raw provenance. The core retains all influences in sparse arrays; the Three.js adapter keeps the strongest four and renormalises them. The editor reports the largest discarded fraction at any vertex.
 
@@ -69,7 +85,17 @@ Bones are not solver particles. The IK solver allocates particles where it needs
 
 A **pose** is bone transforms at one instant. It is the output of animation and the input to rendering, and it is the only thing that crosses between them.
 
-The current pose implementation composes local transforms through the bone hierarchy and multiplies by inverse-bind transforms for skinning. It reuses allocated matrix buffers. A diagnostic bend distributes local Z rotation by incoming rest-segment length, leaving the root fixed. Single-vertebra and fully coincident spines remain at rest. This preview is forward kinematics, not an action, an IK solver, or a gait. It never mutates the creature or its recipe.
+The current pose implementation composes local transforms through the bone hierarchy and multiplies by inverse-bind transforms for skinning. It reuses allocated matrix buffers. A diagnostic bend distributes local Z rotation along the spine by incoming rest-segment length, leaving the root fixed. Single-vertebra and fully coincident spines remain at rest. Limb flex independently applies a local Z rotation to each limb bone. With zero flex, limbs inherit their parent pose without additional rotation. This preview is forward kinematics, not an action, an IK solver, or a gait. It never mutates the creature or its recipe.
+
+### Limb IK
+
+The first Particle IK slice implements the limb phase with a supplied, fixed spine pose. A **pose goal** currently names a stable capped bone and a desired position in creature-space metres. The viewport exposes foot and grasper goals as draggable orange targets. These are temporary pose controls, independent of authored mirror links. Shape mode returns to the authored creature.
+
+`createLimbIK` compiles only the limb paths needed by the chosen targets. A **particle** is a solver position, separate from a bone. Each top-level limb's first segment stays fixed at its socket position in the supplied base pose. Nested limbs share their ancestor particles. Length constraints carry separate inverse masses for their endpoints; additional cross-constraints preserve separation between immediate active children at branches. Unselected branches inherit their parent's reconstructed pose without participating in the solve.
+
+Each solve starts from the base pose, making its output independent of previous frames. The aim preconditioner rotates toward the average descendant goal and scales only along that direction, then repeats at branches. Nonlinear length corrections iterate from the tips inward. An outward reconstruction enforces exact segment lengths, leaving a positional residual when a goal cannot be reached. Bone orientations use minimal-twist alignment and a second constraint axis at branches. The solver and pose reuse their buffers.
+
+This implementation uses 96 iterations and rigid lengths as a diagnostic baseline. A tiny deterministic perpendicular seed lets a perfectly straight compressed chain start bending. Neither choice is claimed as a parameter from the paper. Soft stretch/compression tuning, orientation goals, joint limits, collision handling, secondary motion, and the spine phase with quintic reconstruction and anti-buckling remain unimplemented. An uncapped creature has no limb targets; a one-segment limb can only report its fixed socket's distance from the target.
 
 Motion is produced by two systems that do not know about each other.
 
@@ -86,6 +112,7 @@ The pipeline diagram omits animation state for brevity. Gait and damped secondar
 State the space. "Position" is not a complete name for a variable.
 
 - **creature space** — a fixed right-handed authoring frame, +Y up. Moving a vertebra does not recenter this frame. The rig's root-relative rest frame is derived separately.
+- Spine dragging intersects the fixed Z = 0 mirror plane, keeping body shaping centred regardless of the camera angle. Numeric Z edits still allow an asymmetric body. Align spine sets every vertebra's Z to zero in one undo step, carrying sockets through the existing move mutations.
 - **root-relative rest** — every bone's rest transform expressed relative to the root bone. The IK solver's preconditioner lives here.
 - **world space** — below the line only.
 

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createPose, writeBendPose } from '../anim/pose.ts';
+import { createLimbIK, solveLimbIK } from '../anim/limb-ik.ts';
 import { packWeights } from '../rig/weights.ts';
 import type { Rig } from '../rig/rig.ts';
 import type { Skin } from '../mesh/mesh.ts';
@@ -33,9 +34,22 @@ export function createRigView(skin: Skin, rig: Rig, material: THREE.MeshStandard
   const skeleton = new THREE.Skeleton(bones, rig.bones.map(bone => new THREE.Matrix4().fromArray(bone.inverseBind)));
   mesh.bind(skeleton, new THREE.Matrix4());
   const pose = createPose(rig.bones);
+  const basePose = createPose(rig.bones);
+  const targets = rig.bones.filter(bone => bone.cap === 'foot' || bone.cap === 'grasper').map(bone => ({ boneId: bone.id, cap: bone.cap! }));
+  const ik = createLimbIK(rig.bones, targets);
   const positions = new Float32Array(bones.length * 3);
-  function bend(radians: number) {
-    writeBendPose(rig.bones, radians, pose);
+  const edges = rig.bones.flatMap((bone, index) => bone.kind !== 'limb' || bone.parent < 0 ? [] : [bone.parent, index]);
+  const linePositions = new Float32Array(edges.length * 3);
+  const lineGeometry = new THREE.BufferGeometry();
+  lineGeometry.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
+  const lineMaterial = new THREE.LineBasicMaterial({ color: '#f4f5eb', depthTest: false, transparent: true, opacity: 0.65 });
+  const overlay = new THREE.LineSegments(lineGeometry, lineMaterial);
+  overlay.frustumCulled = false; overlay.renderOrder = 2;
+  function bend(radians: number, limbRadians = 0) {
+    writeBendPose(rig.bones, radians, pose, limbRadians);
+    update();
+  }
+  function update() {
     for (let index = 0; index < bones.length; index++) {
       bones[index].matrix.fromArray(pose.local[index]);
       bones[index].matrixWorldNeedsUpdate = true;
@@ -43,11 +57,30 @@ export function createRigView(skin: Skin, rig: Rig, material: THREE.MeshStandard
       positions[index * 3 + 1] = pose.creature[index][13];
       positions[index * 3 + 2] = pose.creature[index][14];
     }
+    for (let index = 0; index < edges.length; index++) {
+      const source = edges[index] * 3;
+      linePositions[index * 3] = positions[source];
+      linePositions[index * 3 + 1] = positions[source + 1];
+      linePositions[index * 3 + 2] = positions[source + 2];
+    }
+    lineGeometry.getAttribute('position').needsUpdate = true;
   }
+  writeBendPose(rig.bones, 0, basePose);
   bend(0);
   return {
-    mesh, positions, bend,
+    mesh, overlay, positions, bend,
+    targets, goals: ik.goals,
+    solve() {
+      solveLimbIK(rig.bones, ik, basePose, pose);
+      update();
+    },
+    resetGoals() {
+      targets.forEach((target, index) => {
+        const bone = rig.bones.find(bone => bone.id === target.boneId)!;
+        for (let axis = 0; axis < 3; axis++) ik.goals[index * 3 + axis] = bone.restCreature[12 + axis];
+      });
+    },
     maximumDiscarded: packed.maximumDiscarded,
-    dispose() { geometry.dispose(); skeleton.dispose(); },
+    dispose() { geometry.dispose(); skeleton.dispose(); lineGeometry.dispose(); lineMaterial.dispose(); },
   };
 }
