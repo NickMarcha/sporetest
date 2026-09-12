@@ -100,7 +100,7 @@ export function mountEditor() {
         latestSkin = response.skin;
         const discarded = viewer.setSkin(response.skin, response.rig);
         element('#bone-count').textContent = `${response.rig.bones.length} ${response.rig.bones.length === 1 ? 'bone' : 'bones'}`;
-        ikPreview.disabled = !response.rig.bones.some(bone => bone.cap === 'foot' || bone.cap === 'grasper');
+        ikPreview.disabled = false;
         element<HTMLButtonElement>('#tool-ik').disabled = ikPreview.disabled;
         element('#bind-time').textContent = `${response.bindMilliseconds.toFixed(1)} ms`;
         element('#discarded').textContent = `${(discarded * 100).toFixed(2)}%`;

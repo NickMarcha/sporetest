@@ -20,7 +20,7 @@ So: **the rigging and animation architecture is the deliverable.** Every layer b
 
 Design is settled. `CONTEXT.md` holds the domain model, and `docs/adr/` records the five decisions that would be expensive to reverse. Read both before you write anything.
 
-The editor meshes an authored spine and recursive limb chains, derives a branching rig, and binds the skin from field provenance with adjacency smoothing. Sockets carry attachments with their parent source. Bend, limb-flex, and limb IK previews exercise the binding without changing the creature. IK targets foot and grasper caps with the spine fixed. Recipes can be downloaded as JSON. Separate attached meshes, spine IK, and gait are not implemented yet.
+The editor meshes an authored spine and recursive limb chains, derives a branching rig, and binds the skin from field provenance with adjacency smoothing. Sockets carry attachments with their parent source. Bend, limb-flex, and two-phase IK previews exercise the binding without changing the creature. IK exposes head, tail, foot, and grasper targets. The head drives the root, reduced spine particles respond to tail and limb goals, quintic curves reconstruct the spine, and limbs solve against that pose. Recipes can be downloaded as JSON. Separate attached meshes and gait are not implemented yet.
 
 Limbs are placed on the skin in the viewport, with a ghost preview, optional mirrored pairs, and a single-limb snap at the fixed centre plane. Limb segments are draggable. Mirror links are saved in creature data and keep both sides synchronized through edits, including segment and socket changes. Unlink explicitly before asymmetric edits. The rig still derives individual bones and weights without assuming symmetry.
 
@@ -140,7 +140,7 @@ Three.js is the deliberate application of "lean on established libraries". Writi
 
 ## Where code will live
 
-All directories below exist. `rig/` implements spine and limb binding; `anim/` implements pose evaluation, bend diagnostics, and the limb phase of Particle IK. Spine IK and gait remain planned.
+All directories below exist. `rig/` implements spine and limb binding; `anim/` implements pose evaluation, bend diagnostics, and both phases of Particle IK. Constraint tuning, orientation goals, secondary motion, and gait remain planned.
 
 ```
 src/
