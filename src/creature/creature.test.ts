@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyMutation, createCreature, replayRecipe, validateCreature } from './creature.ts';
+import { applyMutation, createCreature, parseRecipe, replayRecipe, validateCreature } from './creature.ts';
 import type { Recipe } from './creature.ts';
 
 test('recipe replay round-trips without modifying its base or mutation inputs', () => {
@@ -39,4 +39,22 @@ test('degenerate geometry is allowed, invalid numeric data is rejected', () => {
   assert.throws(() => validateCreature({ ...creature, spine: [] }));
   assert.throws(() => validateCreature({ ...creature, spine: [creature.spine[0], creature.spine[0]] }));
   assert.throws(() => validateCreature({ ...creature, spine: [{ ...creature.spine[0], orientation: [0, 0, 0, 0] }] }));
+});
+
+test('parsing a recipe accepts saved files and rejects malformed ones with a message', () => {
+  const creature = createCreature();
+  const recipe: Recipe = {
+    base: creature,
+    mutations: [{ type: 'radius', id: 'v3', radius: 1.1 }, { type: 'color', color: '#c98f6b' }],
+  };
+  const parsed = parseRecipe(JSON.stringify(recipe));
+  assert.deepEqual(parsed, recipe);
+  assert.deepEqual(replayRecipe(parsed), applyMutation(applyMutation(creature, recipe.mutations[0]), recipe.mutations[1]));
+
+  assert.throws(() => parseRecipe('{not json'), /valid JSON/);
+  assert.throws(() => parseRecipe('[]'), /base creature/);
+  assert.throws(() => parseRecipe(JSON.stringify({ base: { spine: [] }, mutations: [] })), /skin colour/);
+  assert.throws(() => parseRecipe(JSON.stringify({ base: creature, mutations: [{}] })), /needs a type/);
+  assert.throws(() => parseRecipe(JSON.stringify({ base: { ...creature, spine: [] }, mutations: [] })), /at least one vertebra/);
+  assert.throws(() => parseRecipe(JSON.stringify({ base: creature, mutations: [{ type: 'move', id: 'missing', position: [0, 0, 0] }] })), /No vertebra/);
 });

@@ -15,7 +15,7 @@ npm run dev
 
 Open the local URL printed by Astro, normally `http://127.0.0.1:4321`.
 
-Drag a vertebra in the viewport or select one in the sidebar. Adjust its radius and position, add or remove vertebrae, and use Undo or Redo to revisit edits. Drag empty space to orbit; scroll to zoom. Frame creature fits the current skin into view. Save recipe downloads the base creature and ordered mutations as JSON. Loading recipes is not implemented yet; `replayRecipe` reconstructs them in the pure core.
+Drag a vertebra in the viewport or select one in the sidebar. Adjust its radius and position, add or remove vertebrae, and use Undo or Redo to revisit edits. Drag empty space to orbit; scroll to zoom. Frame creature fits the current skin into view. Save recipe downloads the base creature and ordered mutations as JSON. Load recipe reads one back: the file's base becomes the document base and each saved mutation becomes an Undo step, so saving again round-trips the file. A malformed or unreplayable file is reported and leaves the current creature alone.
 
 Choose Leg or Arm above the viewport, move over the skin to see the ghost, then click to attach. Legs default to a mirrored pair; arms default to one limb. Toggle Mirror for either tool. The dashed centre line marks where placement snaps to a single central limb. Escape cancels placement. A successful click returns to Shape mode, and a pair is one Undo step. Mirrored limbs stay linked when you drag points, edit sockets or radii, and add or remove segments. Select Unlink pair in the Limbs sidebar for asymmetric edits. Removing a linked limb removes both sides.
 

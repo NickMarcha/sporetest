@@ -1,3 +1,4 @@
+import './browserify-global.ts';
 import ndarray from 'ndarray';
 import surfaceNets from 'surface-nets';
 import { evaluateNormal, evaluateProvenance, ISOVALUE, kernel } from '../field/field.ts';

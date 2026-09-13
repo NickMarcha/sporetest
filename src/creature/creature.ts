@@ -143,3 +143,23 @@ export function createCreature(): Creature {
     ],
   };
 }
+
+/** Checks untrusted JSON for recipe shape, then proves it replays. Returns the parsed recipe untouched. */
+export function parseRecipe(text: string): Recipe {
+  let data: unknown;
+  try { data = JSON.parse(text); } catch { throw new Error('The recipe file is not valid JSON.'); }
+  const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+  if (!isRecord(data) || !isRecord(data.base) || !Array.isArray(data.mutations)) {
+    throw new Error('A recipe needs a base creature and a list of mutations.');
+  }
+  const base = data.base;
+  if (!Array.isArray(base.spine) || !Array.isArray(base.parts) || !Array.isArray(base.mirrorPairs) || typeof base.skinColor !== 'string') {
+    throw new Error('The base creature needs a spine, parts, mirror pairs, and a skin colour.');
+  }
+  if (!data.mutations.every(mutation => isRecord(mutation) && typeof mutation.type === 'string')) {
+    throw new Error('Every mutation needs a type.');
+  }
+  const recipe = data as unknown as Recipe;
+  replayRecipe(recipe);
+  return recipe;
+}

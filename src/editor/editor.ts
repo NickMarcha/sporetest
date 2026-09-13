@@ -1,4 +1,4 @@
-import { applyMutation, createCreature } from '../creature/creature.ts';
+import { applyMutation, createCreature, parseRecipe } from '../creature/creature.ts';
 import type { Creature, Mutation, Recipe, Position } from '../creature/creature.ts';
 import { createViewer } from '../render/viewer.ts';
 import type { MeshRequest, MeshResponse } from './mesh-worker.ts';
@@ -19,7 +19,7 @@ export function mountEditor() {
   const status = element('#status');
   const errorMessage = element('#error');
   let creature = createCreature();
-  const base = structuredClone(creature);
+  let base = structuredClone(creature);
   let mutations: Mutation[] = [];
   let undone: Mutation[][] = [];
   let history: Mutation[][] = [];
@@ -282,7 +282,8 @@ export function mountEditor() {
   });
   on(element('#undo'), 'click', () => { endGesture(); const step = history.pop(); if (step) { undone.push(step); restoreHistory(); } });
   on(element('#redo'), 'click', () => { const step = undone.pop(); if (step) { history.push(step); restoreHistory(); } });
-  on(element('#reset'), 'click', () => {
+  /** Replaces the whole document. Reset keeps the current base; Load brings a saved base and its mutations, each as one undo step. */
+  function loadDocument(nextBase: Creature, nextMutations: Mutation[]) {
     walkingPreview = false;
     standingPreview = false;
     selectedSegment = null; placementTool = null; updatePlacementControls();
@@ -292,11 +293,14 @@ export function mountEditor() {
     updatePreview();
     gestureBase = null;
     gestureMutations = [];
-    history = []; undone = []; mutations = [];
-    creature = structuredClone(base); selected = creature.spine[2].id;
+    base = structuredClone(nextBase);
+    history = nextMutations.map(mutation => [structuredClone(mutation)]); undone = []; mutations = history.flat();
+    creature = mutations.reduce(applyMutation, structuredClone(base));
+    selected = creature.spine[Math.min(2, creature.spine.length - 1)].id;
     needsFrame = true;
     updateControls(true); remesh();
-  });
+  }
+  on(element('#reset'), 'click', () => loadDocument(base, []));
   on(element('#frame'), 'click', () => viewer.frameCreature());
   on(element('#align-spine'), 'click', () => {
     endGesture();
@@ -327,6 +331,19 @@ export function mountEditor() {
     const url = URL.createObjectURL(new Blob([JSON.stringify(recipe, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = 'creature.recipe.json'; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  const recipeFile = element<HTMLInputElement>('#recipe-file');
+  on(element('#load'), 'click', () => { endGesture(); recipeFile.value = ''; recipeFile.click(); });
+  on(recipeFile, 'change', async () => {
+    const file = recipeFile.files?.[0];
+    if (!file) return;
+    try {
+      const recipe = parseRecipe(await file.text());
+      if (disposed) return;
+      loadDocument(recipe.base, recipe.mutations);
+    } catch (error) {
+      reportError(error instanceof Error ? error.message : 'Could not read the recipe.');
+    }
   });
   updateControls(true);
   updatePlacementControls();
