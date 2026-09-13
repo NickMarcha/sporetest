@@ -5,6 +5,7 @@ import type { MeshRequest, MeshResponse } from './mesh-worker.ts';
 import type { Skin } from '../mesh/mesh.ts';
 import { mountLimbEditor } from './limb-editor.ts';
 import { createAttachedLimb, moveLimbSegment } from '../creature/attachment.ts';
+import type { LimbPreset } from '../creature/attachment.ts';
 import type { PlacementTool } from '../render/placement.ts';
 
 function element<T extends HTMLElement>(selector: string) {
@@ -172,11 +173,11 @@ export function mountEditor() {
   function selectVertebra(id: string) { selected = id; selectedSegment = null; updateControls(); }
   function updatePlacementControls() {
     viewer.placement(placementTool);
-    for (const mode of ['shape', 'arm', 'leg', 'ik', 'stand', 'walk']) element(`#tool-${mode}`).setAttribute('aria-pressed', String(mode === (walkingPreview ? 'walk' : standingPreview ? 'stand' : ikPreview.checked ? 'ik' : preview.checked ? 'preview' : placementTool?.kind ?? 'shape')));
+    for (const mode of ['shape', 'arm', 'leg', 'tail', 'ik', 'stand', 'walk']) element(`#tool-${mode}`).setAttribute('aria-pressed', String(mode === (walkingPreview ? 'walk' : standingPreview ? 'stand' : ikPreview.checked ? 'ik' : preview.checked ? 'preview' : placementTool?.kind ?? 'shape')));
     element<HTMLInputElement>('#mirror-placement').disabled = !placementTool;
     element('#placement-hint').textContent = walkingPreview ? 'Walking · Shape to edit' : standingPreview ? 'Inspect foot contact · Shape to edit' : ikPreview.checked ? 'Drag orange targets to pose' : preview.checked ? 'Inspect the bend' : placementTool ? 'Move over the skin · Esc to cancel' : 'Drag points to shape';
   }
-  function setPlacement(kind: 'arm' | 'leg' | null) {
+  function setPlacement(kind: LimbPreset | null) {
     endGesture();
     walkingPreview = false;
     standingPreview = false;
@@ -239,7 +240,7 @@ export function mountEditor() {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-id]');
     if (button?.dataset.id) selectVertebra(button.dataset.id);
   });
-  for (const kind of ['arm', 'leg'] as const) on(element(`#tool-${kind}`), 'click', () => setPlacement(kind));
+  for (const kind of ['arm', 'leg', 'tail'] as const) on(element(`#tool-${kind}`), 'click', () => setPlacement(kind));
   on(element('#tool-shape'), 'click', () => setPlacement(null));
   on(element('#tool-ik'), 'click', () => { endGesture(); ikPreview.checked = standingPreview || walkingPreview || !ikPreview.checked; standingPreview = false; walkingPreview = false; preview.checked = false; updatePreview(); });
   on(element('#tool-stand'), 'click', () => { endGesture(); standingPreview = !standingPreview; walkingPreview = false; ikPreview.checked = standingPreview; preview.checked = false; updatePreview(); });

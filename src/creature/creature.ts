@@ -12,7 +12,7 @@ export type Vertebra = {
   orientation: Orientation;
 };
 
-export type Cap = 'foot' | 'grasper' | 'mouth' | 'eye';
+export type Cap = 'foot' | 'grasper' | 'mouth' | 'eye' | 'tail';
 /** Socket frame relative to its authored source, in metres and a unit quaternion. */
 export type Socket = { sourceId: string; position: Position; orientation: Orientation };
 /** Positions and orientations are relative to the limb's socket frame. */
@@ -63,7 +63,7 @@ export function validateCreature(creature: Creature) {
           segment.orientation.length !== 4 || !segment.orientation.every(Number.isFinite) ||
           Math.abs(quat.length(segment.orientation) - 1) > 1e-5) throw new Error('Invalid limb segment.');
       }
-      if (part.cap !== null && !['foot', 'grasper', 'mouth', 'eye'].includes(part.cap)) throw new Error('Invalid cap.');
+      if (part.cap !== null && !['foot', 'grasper', 'mouth', 'eye', 'tail'].includes(part.cap)) throw new Error('Invalid cap.');
       validateParts(part.parts, segmentIds);
     }
   }

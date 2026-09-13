@@ -6,7 +6,7 @@ export function mountLimbEditor(host: HTMLElement, getCreature: () => Creature, 
   host.innerHTML = `
     <div class="section-heading"><h2>Limbs</h2><span id="limb-count">0 limbs</span></div>
     <fieldset class="limb-fields">
-      <p class="rig-explanation">Choose Arm or Leg above the creature, then click its skin. Drag the points to reshape a limb.</p>
+      <p class="rig-explanation">Choose Arm, Leg or Tail above the creature, then click its skin. Drag the points to reshape a limb.</p>
       <div id="limb-details" hidden>
         <p id="mirror-link-status" class="rig-explanation"></p>
         <button class="button" id="limb-unlink" type="button">Unlink pair</button>
@@ -18,7 +18,7 @@ export function mountLimbEditor(host: HTMLElement, getCreature: () => Creature, 
         <div class="axis-label">Socket offset <span>parent metres</span></div>
         <div class="coordinates">${['X', 'Y', 'Z'].map((axis, index) => `<label><span>${axis}</span><input type="number" step="0.1" data-socket-axis="${index}" aria-label="Socket offset ${axis}"/></label>`).join('')}</div>
         <div class="button-row"><button class="button" id="segment-add" type="button">+ Segment</button><button class="button quiet" id="segment-remove" type="button">Remove segment</button></div>
-        <label class="limb-label">Tip cap<select id="limb-cap"><option value="">None</option><option value="foot">Foot</option><option value="grasper">Grasper</option><option value="mouth">Mouth</option><option value="eye">Eye</option></select></label>
+        <label class="limb-label">Tip cap<select id="limb-cap"><option value="">None</option><option value="foot">Foot</option><option value="grasper">Grasper</option><option value="tail">Tail</option><option value="mouth">Mouth</option><option value="eye">Eye</option></select></label>
         <p class="rig-explanation">Caps mark a purpose for animation. Separate feet and other attached meshes come later.</p>
         <button class="button quiet" id="limb-remove" type="button">Remove limb & branches</button>
       </div>

@@ -25,7 +25,7 @@ Vertebrae have stable string identifiers. Recipe mutations and field provenance 
 
 A creature owns **parts**. A part is anything attached to the surface: a limb, a foot, a hand, a mouth, an eye, a decoration. Parts attach at **sockets**, and a socket is both a location and the frame that location implies. Parts are recursive, because a limb is itself a chain of segments and things hang off its end.
 
-Parts carry **caps**, which transfer to their derived bones. A cap is a semantic tag: `foot`, `grasper`, `mouth`, `eye`. Actions select targets by cap rather than hard-coded part names or indices. After selection, the solver and renderer may use resolved indices into typed arrays.
+Parts carry **caps**, which transfer to their derived bones. A cap is a semantic tag: `foot`, `grasper`, `mouth`, `eye`, `tail`. Actions select targets by cap rather than hard-coded part names or indices. After selection, the solver and renderer may use resolved indices into typed arrays.
 
 ### Limb and socket coordinates
 
@@ -89,7 +89,7 @@ The current pose implementation composes local transforms through the bone hiera
 
 ### Limb IK
 
-The Particle IK limb phase takes a supplied, fixed spine pose. A **pose goal** names a stable bone and a desired position in creature-space metres. Foot and grasper goals select bones by cap. Head and tail are ordered spine roles, resolved to stable bone identifiers when compiling the solver. The viewport exposes these goals as draggable orange targets. These are temporary pose controls, independent of authored mirror links. Shape mode returns to the authored creature.
+The Particle IK limb phase takes a supplied, fixed spine pose. A **pose goal** names a stable bone and a desired position in creature-space metres. Foot, grasper, and attached-tail goals select bones by cap. Head and tail are ordered spine roles, resolved to stable bone identifiers when compiling the solver. The viewport exposes these goals as draggable orange targets. These are temporary pose controls, independent of authored mirror links. Shape mode returns to the authored creature.
 
 `createLimbIK` compiles only the limb paths needed by the chosen targets. A **particle** is a solver position, separate from a bone. Each top-level limb's first segment stays fixed at its socket position in the supplied base pose. Nested limbs share their ancestor particles. Length constraints carry separate inverse masses for their endpoints; additional cross-constraints preserve separation between immediate active children at branches. Unselected branches inherit their parent's reconstructed pose without participating in the solve.
 
@@ -113,7 +113,7 @@ The static standing controller derives a **foot contact patch** from generated s
 
 The highest rest sole sets initial body height, so shorter legs do not start above the floor. The controller keeps foot targets at their authored horizontal positions, places their vertical targets using skin clearance, and solves both IK phases. It corrects targets against measured posed contact error and can lower an overextended body. The body-height adjustment is bounded by rest torso clearance. Up to 24 correction passes run when standing inputs change, not on idle render frames. This resets from authored targets on every invocation, leaving the creature and recipe untouched.
 
-The preview reports contact within one centimetre and marks misses rather than claiming every morphology can stand. Feet with no identifiable skin patch are unsupported. Contact uses the full core weights, so GPU influence reduction can introduce a small visual discrepancy. Rest torso clearance is not posed-body collision detection. This controller does not solve balance, support polygons, non-horizontal terrain, self-intersection, or walking. A separate attached tail also remains an editor feature to add; the current tail target controls the torso's spine endpoint.
+The preview reports contact within one centimetre and marks misses rather than claiming every morphology can stand. Feet with no identifiable skin patch are unsupported. Contact uses the full core weights, so GPU influence reduction can introduce a small visual discrepancy. Rest torso clearance is not posed-body collision detection. This controller does not solve balance, support polygons, non-horizontal terrain, self-intersection, or walking. The spine endpoint target controls the torso; attached tails have separate limb targets.
 
 Motion is produced by two systems that do not know about each other.
 
@@ -128,6 +128,12 @@ This first walk style uses a 0.65 duty factor, a 1.8-second shortest-group cycle
 Walking starts from compiled standing goals and remembers a sole vertex per foot. Up to six IK and contact-feedback passes correct horizontal movement of that vertex and the minimum height of its contact patch. This prevents changing lowest vertices from redefining horizontal contact during a step. Rings show scheduled planted contacts, green within one centimetre and orange for a residual. Flight feet have no ring. The counter reports only planted feet. Correction and posing reuse buffers and never remesh.
 
 This is a steady stepping preview, with immediate entry and exit. Variable speed, turns, settling transitions, balance, deliberate hip sway, and locomotion for creatures without feet remain unimplemented. An unreachable or unsupported foot is not evidence of a successful gait. Skin contact still uses full core weights rather than the renderer's reduced four influences.
+
+### Attached tails
+
+The Tail tool places an ordinary limb with a `tail` cap, three tapered segments, and mirroring off by default. It grows along the picked surface normal with a slight upward curve. Centre-plane snapping and optional mirror links work as they do for arms and legs. Segment dragging, socket edits, adding segments, and recipe replay use the same limb data and mutations.
+
+An attached tail's tip gets a limb IK target, identified by its stable bone identifier. The spine endpoint retains its separate body-control target. Tail caps never count as feet or participate in leg groups. During standing and walking they follow translated rest goals; automatic tail sway and balance actions are not implemented.
 
 **Gait** synthesises locomotion. Legs are clustered into **leg groups** by length; groups are harmonised by approximating their length ratios as small whole numbers, which is what keeps mismatched legs from looking broken. Each foot has a **duty factor**, the fraction of the cycle it spends planted, and a **step trigger**, its offset within the cycle. One normalised flight path, scaled by leg length, serves every foot.
 

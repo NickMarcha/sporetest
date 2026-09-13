@@ -7,7 +7,7 @@ import { createSpineIK, solveSpineIK } from './spine-ik.ts';
 
 /** Compile semantic targets and both solver phases per rig. Head/tail are ordered spine roles. */
 export function createIK(bones: Bone[]) {
-  const limbTargets = bones.filter(bone => bone.kind === 'limb' && (bone.cap === 'foot' || bone.cap === 'grasper'))
+  const limbTargets = bones.filter(bone => bone.kind === 'limb' && (bone.cap === 'foot' || bone.cap === 'grasper' || bone.cap === 'tail'))
     .map(bone => ({ boneId: bone.id, cap: bone.cap! }));
   const spine = createSpineIK(bones, limbTargets), limbs = createLimbIK(bones, limbTargets);
   const targets: Array<{ boneId: string; role: 'head' | 'tail' | Cap }> = [{ boneId: bones[spine.head].id, role: 'head' },

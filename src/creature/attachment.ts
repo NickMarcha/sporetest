@@ -4,10 +4,21 @@ import type { Creature, Limb, Mutation, Position, Orientation } from './creature
 import { resolveStructure } from './structure.ts';
 
 export type AttachmentPoint = { position: Position; normal: Position };
+export type LimbPreset = 'arm' | 'leg' | 'tail';
 
-export function attachmentPositions(hit: AttachmentPoint, kind: 'arm' | 'leg'): Position[] {
+export function attachmentRadii(kind: LimbPreset) {
+  return kind === 'tail' ? [0.25, 0.14, 0.055] : [0.25, 0.19, 0.13];
+}
+
+export function attachmentPositions(hit: AttachmentPoint, kind: LimbPreset): Position[] {
   const outward: Position = [...hit.normal];
   vec3.normalize(outward, outward);
+  if (kind === 'tail') {
+    const middle: Position = [0, 0.1, 0], tip: Position = [0, 0.3, 0];
+    vec3.scaleAndAdd(middle, middle, outward, 0.8); vec3.add(middle, middle, hit.position);
+    vec3.scaleAndAdd(tip, tip, outward, 1.6); vec3.add(tip, tip, hit.position);
+    return [[...hit.position], middle, tip];
+  }
   const elbow: Position = kind === 'leg' ? [0, -0.35, 0] : [-0.15, -0.15, 0];
   const tip: Position = kind === 'leg' ? [0.2, -1.2, 0] : [-0.35, -0.45, 0];
   vec3.scaleAndAdd(elbow, elbow, outward, 0.65);
@@ -17,7 +28,7 @@ export function attachmentPositions(hit: AttachmentPoint, kind: 'arm' | 'leg'): 
 }
 
 /** Convert a picked skin point in creature space into an authored socket and limb. */
-export function createAttachedLimb(creature: Creature, hit: AttachmentPoint, kind: 'arm' | 'leg', identifier: () => string): Limb {
+export function createAttachedLimb(creature: Creature, hit: AttachmentPoint, kind: LimbPreset, identifier: () => string): Limb {
   const sources = resolveStructure(creature).sources;
   const parent = sources.reduce((best, source) =>
     vec3.distance(source.position, hit.position) / source.radius < vec3.distance(best.position, hit.position) / best.radius ? source : best);
@@ -29,9 +40,10 @@ export function createAttachedLimb(creature: Creature, hit: AttachmentPoint, kin
   quat.conjugate(orientation, parent.orientation);
   for (let index = 0; index < 4; index++) if (orientation[index] === 0) orientation[index] = 0;
   const positions = attachmentPositions(hit, kind);
+  const radii = attachmentRadii(kind);
   for (const position of positions) vec3.subtract(position, position, hit.position);
-  return { id: identifier(), kind: 'limb', socket: { sourceId: parent.id, position, orientation }, cap: kind === 'leg' ? 'foot' : 'grasper', parts: [],
-    segments: positions.map((position, index) => ({ id: identifier(), position, radius: [0.25, 0.19, 0.13][index], orientation: [0, 0, 0, 1] })) };
+  return { id: identifier(), kind: 'limb', socket: { sourceId: parent.id, position, orientation }, cap: kind === 'leg' ? 'foot' : kind === 'tail' ? 'tail' : 'grasper', parts: [],
+    segments: positions.map((position, index) => ({ id: identifier(), position, radius: radii[index], orientation: [0, 0, 0, 1] })) };
 }
 
 /** Drag positions arrive in creature space; authored segments remain in socket space. */

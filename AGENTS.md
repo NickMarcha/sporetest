@@ -41,7 +41,7 @@ Use these words exactly. Do not substitute "node", "joint", "model", "entity", o
 - **part** means anything attached to the surface: limb, foot, hand, mouth, eye, detail. A limb is itself a chain, so parts are recursive.
 - **socket** means where a part attaches, and the frame it attaches in. The seam between "the user placed this" and "the mesher must account for it".
 - **field** means the implicit scalar function the creature defines in space. Vertebrae and limb segments contribute to it. **Parts do not.** See ADR 0002.
-- **cap** means a semantic tag on a bone: `foot`, `grasper`, `mouth`, `eye`. Caps are how animation talks about a creature it has never seen. Never address a bone by index.
+- **cap** means a semantic tag on a bone: `foot`, `grasper`, `mouth`, `eye`, `tail`. Caps are how animation talks about a creature it has never seen. Never address a bone by index.
 - **leg** means a path from a spine bone to a bone capped `foot`. **leg group** means legs of roughly equal length, clustered so they share a gait cycle.
 - **action** means a function from creature, intent and time to pose goals. It is what we have instead of animators.
 - **recipe** means the serialised creature: a base plus an ordered list of mutations. It is what gets saved and retrieved.

@@ -5,9 +5,35 @@ import { attachmentPositions, createAttachedLimb, moveLimbSegment } from './atta
 import { resolveStructure } from './structure.ts';
 import type { AttachmentPoint } from './attachment.ts';
 import type { Recipe } from './creature.ts';
+import { deriveBones } from '../rig/skeleton.ts';
+import { createIK, solveIK } from '../anim/ik.ts';
+import { createPose } from '../anim/pose.ts';
 
 function identifiers() { let index = 0; return () => `placed-${index++}`; }
 const close = (a: number, b: number) => assert.ok(Math.abs(a - b) < 1e-5, `${a} != ${b}`);
+
+test('an attached tail round-trips as a tapered limb with an independent IK target', () => {
+  const base = createCreature();
+  const hit: AttachmentPoint = { position: [1.8, 0.3, 0], normal: [1, 0, 0] };
+  const limb = createAttachedLimb(base, hit, 'tail', identifiers());
+  const recipe: Recipe = { base, mutations: [{ type: 'attach', limb }] };
+  const creature = replayRecipe(JSON.parse(JSON.stringify(recipe)) as Recipe);
+  assert.equal(creature.parts[0].cap, 'tail');
+  assert.ok(limb.segments[0].radius > limb.segments[1].radius && limb.segments[1].radius > limb.segments[2].radius);
+  const sources = resolveStructure(creature).sources.filter(source => source.kind === 'limb');
+  attachmentPositions(hit, 'tail').forEach((position, index) => position.forEach((value, axis) => close(value, sources[index].position[axis])));
+  const bones = deriveBones(creature), ik = createIK(bones), pose = createPose(bones);
+  const tip = bones.findIndex(bone => bone.sourceId === limb.segments.at(-1)!.id);
+  const goal = ik.targets.findIndex(target => target.boneId === bones[tip].id);
+  assert.ok(goal >= 2); assert.equal(ik.targets[goal].role, 'tail');
+  assert.equal(ik.targets.filter(target => target.role === 'foot').length, 0);
+  const bodyTail = ik.goals.slice(3, 6);
+  ik.goals[goal * 3] -= 0.2; ik.goals[goal * 3 + 1] += 0.3;
+  solveIK(bones, ik, pose);
+  assert.deepEqual(ik.goals.slice(3, 6), bodyTail);
+  assert.ok(Math.hypot(...[0, 1, 2].map(axis => pose.creature[tip][12 + axis] - ik.goals[goal * 3 + axis])) < 0.01);
+  assert.deepEqual(base.parts, []);
+});
 
 test('picked skin positions survive conversion through a rotated parent frame', () => {
   const creature = createCreature(); creature.spine = [creature.spine[2]];

@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { attachmentPositions } from '../creature/attachment.ts';
-import type { AttachmentPoint } from '../creature/attachment.ts';
+import { attachmentPositions, attachmentRadii } from '../creature/attachment.ts';
+import type { AttachmentPoint, LimbPreset } from '../creature/attachment.ts';
 import type { Skin } from '../mesh/mesh.ts';
 
-export type PlacementTool = { kind: 'arm' | 'leg'; mirror: boolean };
+export type PlacementTool = { kind: LimbPreset; mirror: boolean };
 export const CENTER_SNAP = 0.14; // Metres from the authoring plane Z = 0.
 
 export function createPlacementPreview(scene: THREE.Scene) {
@@ -78,14 +78,16 @@ export function createPlacementPreview(scene: THREE.Scene) {
     balls.forEach(ball => { ball.visible = false; }); links.forEach(link => { link.visible = false; });
     hits.forEach((hit, limb) => {
       const positions = attachmentPositions(hit, tool.kind);
+      const radii = attachmentRadii(tool.kind);
       positions.forEach((position, index) => {
-        const ball = balls[limb * 3 + index]; ball.visible = true; ball.position.fromArray(position); ball.scale.setScalar([0.25, 0.19, 0.13][index]);
+        const ball = balls[limb * 3 + index]; ball.visible = true; ball.position.fromArray(position); ball.scale.setScalar(radii[index]);
       });
       for (let index = 0; index < 2; index++) {
         a.fromArray(positions[index]); b.fromArray(positions[index + 1]); direction.subVectors(b, a);
         const link = links[limb * 2 + index]; link.visible = true;
         link.position.copy(a).add(b).multiplyScalar(0.5);
-        link.scale.set([0.21, 0.15][index], direction.length(), [0.21, 0.15][index]);
+        const radius = (radii[index] + radii[index + 1]) / 2;
+        link.scale.set(radius, direction.length(), radius);
         link.quaternion.setFromUnitVectors(up, direction.normalize());
       }
     });
