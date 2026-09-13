@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { createPose, writeBendPose } from '../anim/pose.ts';
 import { createIK, solveIK } from '../anim/ik.ts';
 import { createStanding, writeStandingPose } from '../anim/standing.ts';
+import { createWalking, writeWalkingPose } from '../anim/walking.ts';
+import type { Walking } from '../anim/walking.ts';
 import { packWeights } from '../rig/weights.ts';
 import type { Rig } from '../rig/rig.ts';
 import type { Skin } from '../mesh/mesh.ts';
@@ -38,6 +40,7 @@ export function createRigView(skin: Skin, rig: Rig, material: THREE.MeshStandard
   const ik = createIK(rig.bones);
   const targets = ik.targets;
   const stance = createStanding(skin, rig);
+  let walking: Walking | null = null;
   const positions = new Float32Array(bones.length * 3);
   const edges = rig.bones.flatMap((bone, index) => bone.kind !== 'limb' || bone.parent < 0 ? [] : [bone.parent, index]);
   const linePositions = new Float32Array(edges.length * 3);
@@ -71,6 +74,11 @@ export function createRigView(skin: Skin, rig: Rig, material: THREE.MeshStandard
     mesh, overlay, positions, bend,
     targets, goals: ik.goals,
     stance,
+    startWalk(floorY: number) { walking = createWalking(skin, rig, floorY, pose); return walking; },
+    walk(seconds: number) {
+      if (!walking) return null;
+      writeWalkingPose(skin, rig, walking, seconds, pose); update(); return walking;
+    },
     stand(floorY: number) { writeStandingPose(skin, rig, stance, floorY, pose); update(); return stance; },
     solve() {
       solveIK(rig.bones, ik, pose);

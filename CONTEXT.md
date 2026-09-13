@@ -117,6 +117,18 @@ The preview reports contact within one centimetre and marks misses rather than c
 
 Motion is produced by two systems that do not know about each other.
 
+### Walking preview
+
+Walk previews straight, constant-speed travel on the standing floor. It derives each leg's length by tracing its foot cap back to the spine, including shared paths for branched legs. Legs within 20 percent of the shortest length in a group share a cycle. Group periods approximate length ratios with rational numbers whose denominators are at most four. Feet are ordered around each group's horizontal centre and given evenly spaced step triggers, independently of mirror links.
+
+This first walk style uses a 0.65 duty factor, a 1.8-second shortest-group cycle, and speed equal to 0.16 times the shortest group length per second. The flight arc lifts by 0.12 leg lengths. Its horizontal velocity joins the planted ground sweep continuously; vertical velocity is zero at lift-off and touchdown. These constants are initial tuning choices. Travel points horizontally from tail to head, falling back to negative X for a vertical or one-vertebra spine.
+
+`sampleGait` writes foot offsets, planted flags, and root travel into reused arrays. It samples absolute elapsed seconds, so repeated samples and skipped frames produce the same goals. In the translating creature frame, a planted foot sweeps backward at travel speed. Adding root travel recovers a constant contact location in the fixed authoring frame. The viewer keeps the creature centred and scrolls the metre grid with that same travel.
+
+Walking starts from compiled standing goals and remembers a sole vertex per foot. Up to six IK and contact-feedback passes correct horizontal movement of that vertex and the minimum height of its contact patch. This prevents changing lowest vertices from redefining horizontal contact during a step. Rings show scheduled planted contacts, green within one centimetre and orange for a residual. Flight feet have no ring. The counter reports only planted feet. Correction and posing reuse buffers and never remesh.
+
+This is a steady stepping preview, with immediate entry and exit. Variable speed, turns, settling transitions, balance, deliberate hip sway, and locomotion for creatures without feet remain unimplemented. An unreachable or unsupported foot is not evidence of a successful gait. Skin contact still uses full core weights rather than the renderer's reduced four influences.
+
 **Gait** synthesises locomotion. Legs are clustered into **leg groups** by length; groups are harmonised by approximating their length ratios as small whole numbers, which is what keeps mismatched legs from looking broken. Each foot has a **duty factor**, the fraction of the cycle it spends planted, and a **step trigger**, its offset within the cycle. One normalised flight path, scaled by leg length, serves every foot.
 
 **Actions** produce everything else. An action is a function from creature, intent and time to pose goals — looking at something, reaching for something, breathing, chewing. Actions select by cap, never by index.

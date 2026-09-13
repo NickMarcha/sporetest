@@ -22,13 +22,13 @@ export function createStanding(skin: Skin, rig: Rig) {
   }
   const contacts = feet.filter(foot => foot.vertices.length).map(foot => ({ ...foot, vertices: Uint32Array.from(foot.vertices) }));
   return { ik, restGoals: ik.goals.slice(), contacts, bodyBottom,
-    contactPositions: new Float64Array(contacts.length * 3), gaps: new Float64Array(contacts.length),
+    contactPositions: new Float64Array(contacts.length * 3), contactVertices: new Uint32Array(contacts.length), gaps: new Float64Array(contacts.length),
     grounded: 0, maximumError: 0, unsupported: feet.length - contacts.length, bodyShift: 0 };
 }
 export type Standing = ReturnType<typeof createStanding>;
 
 /** Measure just the compiled foot patches with the same binding as the rendered skin. */
-function measureContacts(skin: Skin, rig: Rig, stance: Standing, pose: Pose, floorY: number) {
+export function measureContacts(skin: Skin, rig: Rig, stance: Standing, pose: Pose, floorY: number) {
   stance.grounded = 0; stance.maximumError = 0;
   for (let foot = 0; foot < stance.contacts.length; foot++) {
     let bottom = Infinity, bx = 0, bz = 0;
@@ -41,7 +41,7 @@ function measureContacts(skin: Skin, rig: Rig, stance: Standing, pose: Pose, flo
         py += w * (m[1] * x + m[5] * y + m[9] * z + m[13]);
         pz += w * (m[2] * x + m[6] * y + m[10] * z + m[14]);
       }
-      if (py < bottom) { bottom = py; bx = px; bz = pz; }
+      if (py < bottom) { bottom = py; bx = px; bz = pz; stance.contactVertices[foot] = vertex; }
     }
     stance.contactPositions[foot * 3] = bx; stance.contactPositions[foot * 3 + 1] = floorY; stance.contactPositions[foot * 3 + 2] = bz;
     const gap = bottom - floorY;

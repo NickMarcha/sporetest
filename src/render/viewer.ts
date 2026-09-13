@@ -16,6 +16,7 @@ export function createViewer(host: HTMLElement, events: {
   end: () => void;
   place: (hits: AttachmentPoint[]) => void;
   placementHint: (count: number) => void;
+  walkingHint: (grounded: number, planted: number, error: number, unsupported: number) => void;
 }) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -59,6 +60,9 @@ export function createViewer(host: HTMLElement, events: {
   const targetMaterial = new THREE.MeshBasicMaterial({ color: '#db6a3a', wireframe: true, depthTest: false });
   let ikMode = false;
   let standingMode = false;
+  let walkingMode = false;
+  let walkingTime = 0;
+  let walkingReportTime = 0;
   const contacts = new THREE.Group();
   scene.add(contacts);
   const contactGeometry = new THREE.RingGeometry(0.11, 0.15, 24);
@@ -97,7 +101,7 @@ export function createViewer(host: HTMLElement, events: {
     raycaster.setFromCamera(pointer, camera);
   }
   function pointerDown(event: PointerEvent) {
-    if (event.button !== 0 || previewAngle !== null || standingMode) return;
+    if (event.button !== 0 || previewAngle !== null || standingMode || walkingMode) return;
     updateRay(event);
     if (ikMode) {
       const hit = raycaster.intersectObjects(targets.children, false)[0];
@@ -203,8 +207,28 @@ export function createViewer(host: HTMLElement, events: {
   function draw(time = performance.now()) {
     const delta = Math.min(0.1, Math.max(0, (time - lastTime) / 1000));
     lastTime = time;
-    if (rigView && (previewAngle !== null || ikMode || standingMode)) {
-      if (ikMode) rigView.solve();
+    if (rigView && (previewAngle !== null || ikMode || standingMode || walkingMode)) {
+      if (walkingMode) {
+        walkingTime += delta;
+        const walk = rigView.walk(walkingTime);
+        if (walk) {
+          // Follow the translating creature. One-metre grid cells wrap outside the view.
+          grid.position.x = -walk.gait.rootTravel[0] % 1;
+          grid.position.z = -walk.gait.rootTravel[2] % 1;
+          for (let foot = 0; foot < contacts.children.length; foot++) {
+            const marker = contacts.children[foot] as THREE.Mesh;
+            marker.visible = !!walk.gait.planted[foot];
+            marker.position.set(walk.soles[foot * 3] + walk.gait.offsets[foot * 3], grid.position.y + 0.003, walk.soles[foot * 3 + 2] + walk.gait.offsets[foot * 3 + 2]);
+            const error = Math.hypot(marker.position.x - walk.actual[foot * 3], walk.stance.gaps[foot], marker.position.z - walk.actual[foot * 3 + 2]);
+            marker.material = error <= 0.01 ? contactMaterial : missedContactMaterial;
+          }
+          if (walkingTime >= walkingReportTime) {
+            walkingReportTime = walkingTime + 0.2;
+            events.walkingHint(walk.grounded, walk.planted, walk.maximumError, walk.stance.unsupported);
+          }
+        }
+      }
+      else if (ikMode) rigView.solve();
       else if (!standingMode) {
         if (sweep) phase = (phase + delta / 4) % 1;
         const amount = sweep ? Math.sin(phase * Math.PI * 2) : 1;
@@ -242,8 +266,8 @@ export function createViewer(host: HTMLElement, events: {
       const handle = handles.children[index] as THREE.Mesh;
       handle.name = vertebra.id;
       handle.position.fromArray(vertebra.position);
-      handle.material = !ikMode && !standingMode && vertebra.id === selectedId ? selectedMaterial : normalMaterial;
-      handle.scale.setScalar(!ikMode && !standingMode && vertebra.id === selectedId ? 1.4 : 1);
+      handle.material = !ikMode && !standingMode && !walkingMode && vertebra.id === selectedId ? selectedMaterial : normalMaterial;
+      handle.scale.setScalar(!ikMode && !standingMode && !walkingMode && vertebra.id === selectedId ? 1.4 : 1);
     });
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(creature.spine.flatMap(vertebra => vertebra.position), 3));
@@ -266,9 +290,23 @@ export function createViewer(host: HTMLElement, events: {
     return { total: stance.contacts.length + stance.unsupported, grounded: stance.grounded, error: stance.maximumError };
   }
 
+  function walk(value: boolean) {
+    walkingMode = value; walkingTime = 0; walkingReportTime = 0;
+    grid.position.x = 0; grid.position.z = 0;
+    if (!value) { contacts.visible = standingMode; return; }
+    if (!rigView) return;
+    const walking = rigView.startWalk(grid.position.y);
+    contacts.clear(); contacts.visible = true;
+    for (const _ of walking.stance.contacts) {
+      const marker = new THREE.Mesh(contactGeometry, contactMaterial);
+      marker.rotation.x = -Math.PI / 2; contacts.add(marker);
+    }
+  }
+
   return {
     setCreature,
     stand,
+    walk,
     placement(tool: PlacementTool | null) {
       placementTool = tool; placement.hide();
       placement.active(!!tool);
@@ -292,6 +330,7 @@ export function createViewer(host: HTMLElement, events: {
       rigView.overlay.visible = shown;
       grid.position.y = (rigView.mesh.geometry.boundingBox?.min.y ?? -1) - 0.08;
       stand(standingMode);
+      walk(walkingMode);
       return rigView.maximumDiscarded;
     },
     preview(angle: number | null, animate: boolean, limbRadians = 0) {
