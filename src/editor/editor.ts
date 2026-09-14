@@ -70,7 +70,7 @@ export function mountEditor() {
       if (!walkingPreview) return;
       const around = element<HTMLInputElement>('#walk-around').checked;
       element('#viewport-hint').textContent = `${grounded}/${planted} planted feet holding contact`;
-      element('#viewport-help').textContent = `Contact error ${error.toFixed(3)} m${unsupported ? ` · ${unsupported} feet have no skin contact patch` : ''} · ${around ? 'Click area · W/S move · A/D strafe' : 'Camera follows travel'} · Orange rings mark misses · Shape to edit`;
+      element('#viewport-help').textContent = `Contact error ${error.toFixed(3)} m${unsupported ? ` · ${unsupported} feet have no skin contact patch` : ''} · ${around ? 'Click area · W/S move · A/D strafe · Right-drag turns' : 'Camera follows travel'} · Orange rings mark misses · Shape to edit`;
       element('#roam-position').textContent = `Travel ${gait.rootTravel[0].toFixed(2)}, ${gait.rootTravel[2].toFixed(2)} m · Heading ${(gait.yaw * 180 / Math.PI).toFixed(0)}°`;
       const timeline = element<HTMLInputElement>('#walk-time');
       timeline.max = String(Math.max(Number(timeline.max), Math.ceil(seconds / 30) * 30));
@@ -379,6 +379,11 @@ export function mountEditor() {
     viewer.reactionWalk(lean, sway);
     element<HTMLOutputElement>('#walk-lean-output').value = `${Math.round(lean * 100)}%`;
     element<HTMLOutputElement>('#walk-sway-output').value = `${Math.round(sway * 100)}%`;
+  });
+  on(element<HTMLInputElement>('#walk-head'), 'input', event => {
+    const strength = Number((event.target as HTMLInputElement).value);
+    viewer.headWalk(strength);
+    element<HTMLOutputElement>('#walk-head-output').value = `${Math.round(strength * 100)}%`;
   });
   on(element<HTMLInputElement>('#walk-tail'), 'input', event => {
     const strength = Number((event.target as HTMLInputElement).value);

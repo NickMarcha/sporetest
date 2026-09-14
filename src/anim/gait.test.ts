@@ -6,10 +6,11 @@ import { createField } from '../field/field.ts';
 import { meshField } from '../mesh/mesh.ts';
 import { createRig } from '../rig/rig.ts';
 import { createPose } from './pose.ts';
-import { createWalking, writeWalkingPose, configureWeightTransfer, configureBodyMotion, configureTailMotion, configureMovementReaction } from './walking.ts';
+import { createWalking, writeWalkingPose, configureWeightTransfer, configureBodyMotion, configureTailMotion, configureMovementReaction, configureHeadStabilization } from './walking.ts';
 import { sampleGait, configureGait, defaultGaitSettings, preparationSeconds, setGaitMoving, setGaitSpeed, setGaitTurn, setGaitDrive, moveGait } from './gait.ts';
 import type { Gait } from './gait.ts';
 import { solveIK } from './ik.ts';
+import { sampleTravelVelocity } from './gait.ts';
 
 function fixture(count: number, unequal = false, tails = 0) {
   const creature = createCreature(); let id = 0;
@@ -36,6 +37,49 @@ function groundFoot(gait: Gait, foot: number) {
   const c = Math.cos(gait.yaw), s = Math.sin(gait.yaw);
   return [gait.pivot[0] + gait.rootTravel[0] + c * x + s * z, gait.offsets[foot * 3 + 1], gait.pivot[2] + gait.rootTravel[2] - s * x + c * z];
 }
+
+test('head stabilization reduces positional bob and lean without changing travel or foot targets', () => {
+  const { skin, rig, walk, pose } = fixture(2);
+  configureBodyMotion(walk, 1); configureMovementReaction(walk, 1, 0);
+  const headGoal = walk.stance.ik.targets.findIndex(target => target.role === 'head');
+  const headBone = rig.bones.findIndex(bone => bone.id === walk.stance.ik.targets[headGoal].boneId);
+  let unstabilized = 0, stabilized = 0;
+  for (let frame = 1; frame < 90; frame++) {
+    const seconds = frame / 30;
+    configureHeadStabilization(walk, 0); writeWalkingPose(skin, rig, walk, seconds, pose);
+    unstabilized += Math.abs(pose.creature[headBone][13] - walk.baseGoals[headGoal * 3 + 1]);
+    const travel = walk.gait.rootTravel.slice(), feet = walk.gait.offsets.slice();
+    configureHeadStabilization(walk, 1); writeWalkingPose(skin, rig, walk, seconds, pose);
+    stabilized += Math.abs(pose.creature[headBone][13] - walk.baseGoals[headGoal * 3 + 1]);
+    assert.deepEqual(walk.gait.rootTravel, travel); assert.deepEqual(walk.gait.offsets, feet);
+    assert.ok(walk.maximumError < 0.01);
+  }
+  assert.ok(unstabilized > 0.01);
+  assert.ok(stabilized < unstabilized * 0.1);
+  writeWalkingPose(skin, rig, walk, 0.6, pose); const expected = structuredClone(pose);
+  writeWalkingPose(skin, rig, walk, 10, pose); writeWalkingPose(skin, rig, walk, 0.6, pose);
+  assert.deepEqual(pose, expected);
+  assert.throws(() => configureHeadStabilization(walk, NaN));
+});
+
+test('mouse facing preserves ground contacts and velocity and can turn at rest', () => {
+  const { walk } = fixture(2), gait = walk.gait;
+  moveGait(gait, 0, 1, 1); sampleGait(gait, 0.4);
+  const position = gait.rootTravel.slice(), feet = gait.legs.map(leg => groundFoot(gait, leg.foot));
+  const velocity = new Float64Array(3), after = new Float64Array(3);
+  sampleTravelVelocity(gait, 0.4, velocity);
+  moveGait(gait, 0.4, 1, 1, 1, 0.1); sampleGait(gait, 0.4);
+  assert.deepEqual(gait.rootTravel, position);
+  sampleTravelVelocity(gait, 0.4, after);
+  after.forEach((value, axis) => assert.ok(Math.abs(value - velocity[axis]) < 1e-9));
+  gait.legs.forEach(leg => groundFoot(gait, leg.foot).forEach((value, axis) => assert.ok(Math.abs(value - feet[leg.foot][axis]) < 1e-9)));
+  assert.ok(Math.abs(gait.yaw - 0.1) < 1e-9);
+  moveGait(gait, 1, 0, 0); sampleGait(gait, 3);
+  const stopped = gait.rootTravel.slice();
+  moveGait(gait, 3, 0, 0, 1, 0.2); sampleGait(gait, 5);
+  assert.deepEqual(gait.rootTravel, stopped);
+  assert.ok(Math.abs(gait.yaw - 0.3) < 1e-9);
+});
 
 test('movement reaction follows acceleration, opposes braking, and replays without moving the path', () => {
   const { skin, rig, walk, pose } = fixture(2, false, 1);

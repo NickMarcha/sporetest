@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { createPose, writeBendPose } from '../anim/pose.ts';
 import { createIK, solveIK } from '../anim/ik.ts';
 import { createStanding, writeStandingPose } from '../anim/standing.ts';
-import { createWalking, writeWalkingPose, configureWeightTransfer, configureBodyMotion, configureTailMotion, configureMovementReaction } from '../anim/walking.ts';
+import { createWalking, writeWalkingPose, configureWeightTransfer, configureBodyMotion, configureTailMotion, configureMovementReaction, configureHeadStabilization } from '../anim/walking.ts';
 import type { Walking } from '../anim/walking.ts';
 import { configureGait, sampleGait, setGaitMoving, setGaitSpeed, setGaitTurn, moveGait } from '../anim/gait.ts';
 import type { GaitSettings } from '../anim/gait.ts';
@@ -80,6 +80,7 @@ export function createRigView(skin: Skin, rig: Rig, material: THREE.MeshStandard
     tuneWalk(settings: GaitSettings) { if (walking) configureGait(walking.gait, settings); },
     reactionWalk(lean: number, sway: number) { if (walking) configureMovementReaction(walking, lean, sway); },
     tailWalk(strength: number) { if (walking) configureTailMotion(walking, strength); },
+    headWalk(strength: number) { if (walking) configureHeadStabilization(walking, strength); },
     bodyWalk(strength: number) { if (walking) configureBodyMotion(walking, strength); },
     transferWalk(strength: number, maximumShift: number) { if (walking) configureWeightTransfer(walking, strength, maximumShift); },
     toggleWalk(seconds: number) {
@@ -89,7 +90,7 @@ export function createRigView(skin: Skin, rig: Rig, material: THREE.MeshStandard
     },
     speedWalk(seconds: number, factor: number) { if (walking) setGaitSpeed(walking.gait, seconds, walking.gait.speed * factor); },
     turnWalk(seconds: number, radiansPerSecond: number) { if (walking) setGaitTurn(walking.gait, seconds, radiansPerSecond); },
-    driveWalk(seconds: number, forward: number, left: number, factor = 1) { if (walking) moveGait(walking.gait, seconds, forward, left, factor); },
+    driveWalk(seconds: number, forward: number, left: number, factor = 1, yawDelta = 0) { if (walking) moveGait(walking.gait, seconds, forward, left, factor, yawDelta); },
     walk(seconds: number) {
       if (!walking) return null;
       writeWalkingPose(skin, rig, walking, seconds, pose); update(); return walking;

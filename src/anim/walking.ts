@@ -30,7 +30,7 @@ export function createWalking(skin: Skin, rig: Rig, floorY: number, output: Pose
     anchors: stance.contactVertices.slice(), actual: new Float64Array(gait.legs.length * 3),
     footOrientations: stance.contacts.map(contact => output.creature[contact.bone].slice()), rotation: new Float32Array(16), inverseParent: new Float32Array(16),
     transfer: { strength: 0, maximumShift: 0.15, centre, spread, offset: new Float64Array(3) },
-    body: { strength: 0, centreY: stance.ik.goals[stance.ik.targets.findIndex(target => target.role === 'head') * 3 + 1], offsets: new Float64Array(stance.ik.goals.length) },
+    body: { strength: 0, headStabilization: 0, centreY: stance.ik.goals[stance.ik.targets.findIndex(target => target.role === 'head') * 3 + 1], offsets: new Float64Array(stance.ik.goals.length) },
     tail: { strength: 0, tails, delayed: new Float64Array(tails.length * 3), offsets: new Float64Array(stance.ik.limbs.goals.length) },
     reaction: { lean: 0, sway: 0, acceleration: new Float64Array(3), velocity: new Float64Array(3) },
     planted: 0, grounded: 0, maximumError: 0 };
@@ -71,6 +71,11 @@ export function configureWeightTransfer(walk: Walking, strength: number, maximum
 export function configureBodyMotion(walk: Walking, strength: number) {
   if (!Number.isFinite(strength) || strength < 0 || strength > 1) throw new Error('Body motion requires strength in [0, 1].');
   walk.body.strength = strength;
+}
+
+export function configureHeadStabilization(walk: Walking, strength: number) {
+  if (!Number.isFinite(strength) || strength < 0 || strength > 1) throw new Error('Head stabilization requires strength in [0, 1].');
+  walk.body.headStabilization = strength;
 }
 
 export function configureTailMotion(walk: Walking, strength: number) {
@@ -169,6 +174,12 @@ function bodyMotion(walk: Walking) {
     body.offsets[offset] = cz * x - sz * tiltedY - x + leanX * Math.max(0, centreY - walk.floorY) * 0.3;
     body.offsets[offset + 1] = sz * x + cz * tiltedY - y - lift * scale * 0.25;
     body.offsets[offset + 2] = tiltedZ - z + leanZ * Math.max(0, centreY - walk.floorY) * 0.3;
+    // The head already drives the spine solve. Reduce its positional bob and
+    // lean goal before IK, leaving the remaining spine goals to shape the body.
+    // This does not lock head orientation or assume a separately authored neck.
+    if (stance.ik.targets[goal].role === 'head') {
+      for (let axis = 0; axis < 3; axis++) body.offsets[offset + axis] *= 1 - body.headStabilization;
+    }
   }
 }
 

@@ -162,13 +162,13 @@ export function setGaitMoving(gait: Gait, seconds: number, moving: boolean) {
 
 /** Forward/left input in the facing frame. Normalize diagonals before applying
  * the requested speed multiplier. Translation changes without rotating the body. */
-export function moveGait(gait: Gait, seconds: number, forward: number, left: number, factor = 1) {
-  if (![forward, left, factor].every(Number.isFinite) || factor < 0) throw new Error('Movement must be finite with a nonnegative speed factor.');
+export function moveGait(gait: Gait, seconds: number, forward: number, left: number, factor = 1, yawDelta = 0) {
+  if (![forward, left, factor, yawDelta].every(Number.isFinite) || factor < 0) throw new Error('Movement must be finite with a nonnegative speed factor.');
   sampleGait(gait, seconds);
   const scale = gait.speed * factor / Math.max(1, Math.hypot(forward, left));
-  const c = Math.cos(gait.yaw), s = Math.sin(gait.yaw);
+  const c = Math.cos(gait.yaw + yawDelta), s = Math.sin(gait.yaw + yawDelta);
   const dx = c * gait.direction[0] + s * gait.direction[2], dz = -s * gait.direction[0] + c * gait.direction[2];
-  setTravelCommand(gait, seconds, forward * scale, 0, left * scale * dz, -left * scale * dx, true);
+  setTravelCommand(gait, seconds, forward * scale, 0, left * scale * dz, -left * scale * dx, true, yawDelta);
 }
 
 /** Signed travel speed in creature-space metres per second; zero requests a stop. */
@@ -192,16 +192,20 @@ export function setGaitTurn(gait: Gait, seconds: number, radiansPerSecond: numbe
   setTravelCommand(gait, seconds, gait.targetSpeed, gait.speed > 0 ? radiansPerSecond / gait.speed : 0);
 }
 
-function setTravelCommand(gait: Gait, seconds: number, speed: number, curvature?: number, sideX = 0, sideZ = 0, linear = false) {
+function setTravelCommand(gait: Gait, seconds: number, speed: number, curvature?: number, sideX = 0, sideZ = 0, linear = false, yawDelta = 0) {
   if (!Number.isFinite(seconds) || seconds < 0) throw new Error('Gait time must be finite and non-negative.');
   if (!Number.isFinite(speed)) throw new Error('Travel speed must be finite.');
   sampleGait(gait, seconds);
-  const x = gait.rootTravel[0], z = gait.rootTravel[2], yaw = gait.yaw, nextCurvature = curvature ?? gait.curvature;
+  const x = gait.rootTravel[0], z = gait.rootTravel[2], oldYaw = gait.yaw, yaw = oldYaw + yawDelta, nextCurvature = curvature ?? gait.curvature;
+  // Mouse facing changes immediately, but ground velocity must not. Carry the
+  // old forward velocity in the lateral ramp until acceleration redirects it.
+  const fromSideX = gait.currentSideX + gait.currentSpeed * ((Math.cos(oldYaw) - Math.cos(yaw)) * gait.direction[0] + (Math.sin(oldYaw) - Math.sin(yaw)) * gait.direction[2]);
+  const fromSideZ = gait.currentSideZ + gait.currentSpeed * (-(Math.sin(oldYaw) - Math.sin(yaw)) * gait.direction[0] + (Math.cos(oldYaw) - Math.cos(yaw)) * gait.direction[2]);
   const loads = gait.loads.slice(), loadRates = gait.loadRates.slice();
   while (gait.commands.length && gait.commands.at(-1)!.seconds >= seconds) gait.commands.pop();
   const previous = gait.commands.at(-1);
   const moving = speed !== 0 || sideX !== 0 || sideZ !== 0;
-  const keepSpeedRamp = previous?.toSpeed === speed && previous.toSideX === sideX && previous.toSideZ === sideZ && previous.linear === linear;
+  const keepSpeedRamp = yawDelta === 0 && previous?.toSpeed === speed && previous.toSideX === sideX && previous.toSideZ === sideZ && previous.linear === linear;
   if (keepSpeedRamp && previous.curvature === nextCurvature) return;
   // Restart each group on one shared rhythm after retained flights land. Delaying
   // individual origins by their contact times made alternating feet hop together.
@@ -222,14 +226,14 @@ function setTravelCommand(gait: Gait, seconds: number, speed: number, curvature?
   // braking 20, independently of the foot schedule. Unlike an ease-in curve,
   // bounded acceleration starts changing velocity immediately.
   // https://github.com/id-Software/Quake-III-Arena/blob/master/code/game/bg_pmove.c
-  const change = Math.hypot(speed - gait.currentSpeed, sideX - gait.currentSideX, sideZ - gait.currentSideZ);
+  const change = Math.hypot(speed - gait.currentSpeed, sideX - fromSideX, sideZ - fromSideZ);
   const response = Math.max(1e-6, gait.speed > 0 ? change / (gait.speed * (moving ? 12 : 20)) : 0.05);
   const command: TravelCommand = { seconds, speedSeconds: keepSpeedRamp ? previous.speedSeconds : seconds, rampSeconds: keepSpeedRamp ? previous.rampSeconds : linear ? response : transitionSeconds / gait.tempo, linear, moving, distance: previous ? travelDistance(previous, seconds) : 0,
-    fromSideX: keepSpeedRamp ? previous.fromSideX : gait.currentSideX, fromSideZ: keepSpeedRamp ? previous.fromSideZ : gait.currentSideZ, toSideX: sideX, toSideZ: sideZ,
+    fromSideX: keepSpeedRamp ? previous.fromSideX : fromSideX, fromSideZ: keepSpeedRamp ? previous.fromSideZ : fromSideZ, toSideX: sideX, toSideZ: sideZ,
     fromSpeed: keepSpeedRamp ? previous.fromSpeed : previous ? travelSpeed(previous, seconds) : 0, toSpeed: speed, x, z, yaw, curvature: nextCurvature, starts, startTriggers, loads, loadRates, settles: [], redirects: [] };
   gait.commands.push(command);
   if (linear) {
-    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const c = Math.cos(oldYaw), s = Math.sin(oldYaw);
     for (const leg of gait.legs) {
       if (gait.planted[leg.foot]) continue;
       const offset = leg.foot * 3;

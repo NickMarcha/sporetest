@@ -84,6 +84,7 @@ export function createViewer(host: HTMLElement, events: {
   let around = false;
   let aroundSpeed = 1;
   const held = new Set<string>();
+  let steeringPointer = -1, steeringX = 0, forwardIntent = 0, leftIntent = 0;
   const savedCamera = new THREE.Vector3(), savedTarget = new THREE.Vector3(), followed = new THREE.Vector3();
   let walkingTime = 0;
   let walkingClock = performance.now();
@@ -96,7 +97,7 @@ export function createViewer(host: HTMLElement, events: {
   let gaitSettings = { ...defaultGaitSettings };
   let transferStrength = 0, transferLimit = 0.15;
   let bodyStrength = 0.5, tailStrength = 0.7;
-  let leanStrength = 0.5, swayStrength = 0.7;
+  let leanStrength = 0.5, swayStrength = 0.7, headStrength = 0.6;
   let showFootTargets = true;
   const footTargets = new THREE.Group();
   walkingFrame.add(footTargets);
@@ -140,6 +141,12 @@ export function createViewer(host: HTMLElement, events: {
   }
   function pointerDown(event: PointerEvent) {
     if (around) renderer.domElement.focus();
+    if (around && walkingMode && !walkingPaused && event.button === 2) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      steeringPointer = event.pointerId; steeringX = event.clientX;
+      orbit.enabled = false; renderer.domElement.setPointerCapture(event.pointerId);
+      return;
+    }
     if (event.button !== 0 || previewAngle !== null || standingMode || walkingMode) return;
     updateRay(event);
     if (ikMode) {
@@ -189,6 +196,11 @@ export function createViewer(host: HTMLElement, events: {
     host.classList.add('dragging');
   }
   function pointerMove(event: PointerEvent) {
+    if (event.pointerId === steeringPointer) {
+      const delta = event.clientX - steeringX; steeringX = event.clientX;
+      if (delta) drive(forwardIntent, leftIntent, -delta * 0.004);
+      return;
+    }
     if (ikMode && draggingGoal >= 0 && event.pointerId === pointerId && rigView) {
       updateRay(event);
       if (raycaster.ray.intersectPlane(plane, point)) {
@@ -216,6 +228,7 @@ export function createViewer(host: HTMLElement, events: {
   }
   function pointerLeave() { placement.hide(); events.placementHint(0); }
   function pointerEnd(event: PointerEvent) {
+    if (event.pointerId === steeringPointer) { endSteering(); return; }
     if (draggingGoal >= 0 && event.pointerId === pointerId) {
       draggingGoal = -1; orbit.enabled = true;
       if (renderer.domElement.hasPointerCapture(pointerId)) renderer.domElement.releasePointerCapture(pointerId);
@@ -235,16 +248,26 @@ export function createViewer(host: HTMLElement, events: {
   renderer.domElement.addEventListener('pointercancel', pointerEnd);
   renderer.domElement.addEventListener('lostpointercapture', pointerEnd);
   renderer.domElement.addEventListener('pointerleave', pointerLeave);
+  function contextMenu(event: MouseEvent) { if (around) event.preventDefault(); }
+  renderer.domElement.addEventListener('contextmenu', contextMenu);
+  function endSteering() {
+    const pointer = steeringPointer; steeringPointer = -1;
+    if (pointer < 0) return;
+    orbit.enabled = true;
+    if (renderer.domElement.hasPointerCapture(pointer)) renderer.domElement.releasePointerCapture(pointer);
+  }
   function advanceWalkingClock(now: number) {
     if (walkingMode && !walkingPaused && !document.hidden) walkingTime += Math.max(0, now - walkingClock) / 1000 * walkingRate;
     walkingClock = now;
   }
-  function drive(forward: number, left: number) {
+  function drive(forward: number, left: number, yawDelta = 0) {
     if (!around || !walkingMode || walkingPaused) return;
+    forwardIntent = forward; leftIntent = left;
     advanceWalkingClock(performance.now());
-    rigView?.driveWalk(walkingTime, forward, left, aroundSpeed); walkingDirty = true; walkingReportTime = 0;
+    rigView?.driveWalk(walkingTime, forward, left, aroundSpeed, yawDelta); walkingDirty = true; walkingReportTime = 0;
   }
   function releaseDrive() {
+    endSteering(); forwardIntent = leftIntent = 0;
     held.clear();
     advanceWalkingClock(performance.now());
     if (around) { rigView?.driveWalk(walkingTime, 0, 0); walkingDirty = true; walkingReportTime = 0; }
@@ -413,6 +436,7 @@ export function createViewer(host: HTMLElement, events: {
   }
 
   function walk(value: boolean) {
+    endSteering(); forwardIntent = leftIntent = 0;
     held.clear();
     if (!value && around) endAround();
     walkingMode = value; walkingTime = 0; walkingReportTime = 0; walkingClock = performance.now();
@@ -428,6 +452,7 @@ export function createViewer(host: HTMLElement, events: {
     rigView.tuneWalk({ ...gaitSettings, period: gaitSettings.period / (around ? walkAroundTempo : 1) });
     rigView.transferWalk(transferStrength, transferLimit);
     rigView.bodyWalk(bodyStrength);
+    rigView.headWalk(headStrength);
     rigView.tailWalk(tailStrength);
     rigView.reactionWalk(leanStrength, swayStrength);
     footTargets.clear();
@@ -464,7 +489,7 @@ export function createViewer(host: HTMLElement, events: {
         savedCamera.copy(camera.position); savedTarget.copy(orbit.target); followed.set(0, 0, 0);
         around = true; area.visible = true; area.position.y = grid.position.y + 0.004;
         renderer.domElement.tabIndex = 0;
-        renderer.domElement.setAttribute('aria-label', 'Walk around area. W and S move, A and D strafe.');
+        renderer.domElement.setAttribute('aria-label', 'Walk around area. W and S move, A and D strafe. Hold right mouse and drag to turn.');
       } else endAround();
       walk(walkingMode);
       if (value) renderer.domElement.focus();
@@ -473,6 +498,7 @@ export function createViewer(host: HTMLElement, events: {
     toggleWalk() { advanceWalkingClock(performance.now()); rigView?.toggleWalk(walkingTime); walkingDirty = true; walkingReportTime = 0; },
     reactionWalk(lean: number, sway: number) { leanStrength = lean; swayStrength = sway; rigView?.reactionWalk(lean, sway); walkingDirty = true; walkingReportTime = 0; },
     tailWalk(strength: number) { tailStrength = strength; rigView?.tailWalk(strength); walkingDirty = true; walkingReportTime = 0; },
+    headWalk(strength: number) { headStrength = strength; rigView?.headWalk(strength); walkingDirty = true; walkingReportTime = 0; },
     bodyWalk(strength: number) { bodyStrength = strength; rigView?.bodyWalk(strength); walkingDirty = true; walkingReportTime = 0; },
     transferWalk(strength: number, maximumShift: number) {
       transferStrength = strength; transferLimit = maximumShift;
@@ -567,6 +593,7 @@ export function createViewer(host: HTMLElement, events: {
       renderer.domElement.removeEventListener('pointercancel', pointerEnd);
       renderer.domElement.removeEventListener('lostpointercapture', pointerEnd);
       renderer.domElement.removeEventListener('pointerleave', pointerLeave);
+      renderer.domElement.removeEventListener('contextmenu', contextMenu);
       renderer.domElement.removeEventListener('keydown', keyboardDrive);
       renderer.domElement.removeEventListener('blur', releaseDrive);
       window.removeEventListener('keyup', keyboardRelease);

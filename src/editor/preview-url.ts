@@ -1,6 +1,6 @@
 /** Preview tuning travels with the URL; creature data stays in recipes. */
 export function bindPreviewURL(signal: AbortSignal, mode: () => 'walk' | 'stand' | 'shape', tempo: number) {
-  const ids = ['stand-strength', 'stand-shift', 'walk-around', 'gait-duty', 'gait-period', 'gait-lift', 'walk-body', 'walk-tail', 'walk-lean', 'walk-sway',
+  const ids = ['stand-strength', 'stand-shift', 'walk-around', 'gait-duty', 'gait-period', 'gait-lift', 'walk-body', 'walk-head', 'walk-tail', 'walk-lean', 'walk-sway',
     'walk-transfer', 'walk-transfer-limit', 'walk-speed', 'walk-turn', 'walk-rate',
     'walk-targets', 'show-balance', 'show-performance', 'show-spine', 'wireframe'];
   const controls = ids.map(id => {
