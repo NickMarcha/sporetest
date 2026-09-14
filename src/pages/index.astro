@@ -16,6 +16,7 @@ import '../editor/style.css';
       <a class="brand" href={import.meta.env.BASE_URL} aria-label="SporeTest home"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 24C0 18 3 7 12 5s20 6 17 14-15 11-22 5Z" fill="currentColor"/><circle cx="12" cy="14" r="2" fill="#f6f5ef"/><circle cx="21" cy="17" r="2" fill="#f6f5ef"/></svg>spore<span>test</span></a>
       <div class="project-label">CREATURE WORKSHOP <span>03 / LIMBS & SOCKETS</span></div>
       <div class="topbar-actions">
+        <span id="local-save" class="local-save" role="status">Changes save in this browser</span>
         <button id="load" class="button">Load recipe</button>
         <input id="recipe-file" type="file" accept=".json,application/json" hidden />
         <button id="save" class="button primary">Save recipe <span aria-hidden="true">↗</span></button>
@@ -24,6 +25,76 @@ import '../editor/style.css';
     <main class="workspace">
       <aside class="sidebar" aria-label="Creature controls">
         <div class="intro"><span class="eyebrow">A LITTLE EXPERIMENT IN LIFE</span><h1>Make something<br/>unfamiliar.</h1><p>Start with a spine.<br/>See what grows around it.</p></div>
+        <section id="gait-controls" class="gait-section" hidden>
+          <div class="section-heading"><h2>Gait playground</h2><span>WALK PREVIEW</span></div>
+          <label class="toggle"><input id="show-performance" type="checkbox" /><span>Show frame timings</span></label>
+          <p id="motion-performance" class="rig-explanation" title="One-second frame averages. GPU timings are asynchronous when supported. Key timing starts in the event handler and ends at render submission; it excludes OS input queue, GPU completion, and display latency." hidden>Measuring frame timings.</p>
+          <label class="toggle"><input id="walk-around" type="checkbox" /><span>Walk around with WASD</span></label>
+          <div id="roam-controls" hidden>
+            <p class="rig-explanation">Click the area, then hold W/S to move forward/backward and A/D to strafe left/right. Combine keys to move diagonally. Release to stop. Ground rings are 5 m apart. Drag to orbit.</p>
+            <div class="button-row"><button id="roam-forward" class="button">Forward</button><button id="roam-reverse" class="button">Reverse</button></div>
+            <div class="button-row"><button id="roam-left" class="button">Strafe left</button><button id="roam-right" class="button">Strafe right</button><button id="roam-stop" class="button">Stop</button></div>
+            <p class="rig-explanation">Buttons keep moving until Stop. Clicking outside the area or switching tabs stops movement.</p>
+            <p class="rig-explanation">Walk-around travels and steps three times faster than the inspection preview. Travel speed scales WASD and button movement. After adjusting it, click the area to drive again.</p>
+            <p id="roam-position" class="rig-explanation">Position 0.00, 0.00 m</p>
+          </div>
+          <div class="range-label"><label for="gait-duty">Duty factor</label><output id="gait-duty-output" for="gait-duty">65% planted</output></div>
+          <input id="gait-duty" type="range" min="0.2" max="0.9" step="0.01" value="0.65" />
+          <div class="range-label"><label for="gait-period">Cycle duration</label><output id="gait-period-output" for="gait-period">1.80 s</output></div>
+          <input id="gait-period" type="range" min="0.6" max="4" step="0.05" value="1.8" />
+          <div class="range-label"><label for="gait-lift">Foot lift</label><output id="gait-lift-output" for="gait-lift">12% leg length</output></div>
+          <input id="gait-lift" type="range" min="0" max="0.4" step="0.01" value="0.12" />
+          <p class="rig-explanation">Cycle duration sets the shortest leg group's rhythm. Longer groups keep their relative timing. Tuning resamples the current instant.</p>
+          <button id="gait-reset" class="button quiet">Reset gait settings</button>
+          <div class="range-label rig-range"><label for="walk-body">Body motion</label><output id="walk-body-output" for="walk-body">50%</output></div>
+          <input id="walk-body" type="range" min="0" max="1" step="0.05" value="0.5" />
+          <p class="rig-explanation">Gentle bob and tilt with each step. Zero turns it off. Motion eases back when feet need more reach.</p>
+          <div class="range-label rig-range"><label for="walk-tail">Tail follow-through</label><output id="walk-tail-output" for="walk-tail">70%</output></div>
+          <input id="walk-tail" type="range" min="0" max="1" step="0.05" value="0.7" />
+          <p class="rig-explanation">Attached tails lag behind body bob and tilt, then settle. Requires Body motion above zero. Longer tails respond more slowly.</p>
+          <div class="range-label rig-range"><label for="walk-lean">Movement lean</label><output id="walk-lean-output" for="walk-lean">50%</output></div>
+          <input id="walk-lean" type="range" min="0" max="1" step="0.05" value="0.5" />
+          <div class="range-label"><label for="walk-sway">Tail sway</label><output id="walk-sway-output" for="walk-sway">70%</output></div>
+          <input id="walk-sway" type="range" min="0" max="1" step="0.05" value="0.7" />
+          <p class="rig-explanation">Lean into acceleration and turns; tails sway outward and trail direction changes. Braking eases the reaction back to rest.</p>
+          <div class="range-label rig-range"><label for="walk-transfer">Weight transfer</label><output id="walk-transfer-output" for="walk-transfer">0%</output></div>
+          <input id="walk-transfer" type="range" min="0" max="1" step="0.05" value="0" />
+          <div class="range-label"><label for="walk-transfer-limit">Torso travel limit</label><output id="walk-transfer-limit-output" for="walk-transfer-limit">0.15 m</output></div>
+          <input id="walk-transfer-limit" type="range" min="0" max="0.3" step="0.01" value="0.15" />
+          <p id="walk-transfer-status" class="rig-explanation">Weight transfer off.</p>
+          <p class="rig-explanation gait-legend">Shift toward supporting feet before lift-off. Starts briefly prepare support before stepping. Zero strength gives the original torso motion. Contact errors still report unreachable poses.</p>
+          <div class="range-label rig-range"><label for="walk-speed">Travel speed</label><output id="walk-speed-output" for="walk-speed">1.00× · 0.000 m/s</output></div>
+          <input id="walk-speed" type="range" min="0" max="2" step="0.05" value="1" />
+          <div class="range-label rig-range"><label for="walk-turn">Turn rate</label><output id="walk-turn-output" for="walk-turn">Straight</output></div>
+          <input id="walk-turn" type="range" min="-45" max="45" step="1" value="0" />
+          <button id="walk-straight" class="button quiet">Steer straight</button>
+          <p class="rig-explanation gait-legend">Left to turn left, right to turn right. Rate is at baseline travel speed; slowing also slows the turn. Planted feet hold their ground. Tight turns can exceed reach, shown by orange contact rings.</p>
+          <div class="button-row"><button id="walk-motion" class="button">Stop walking</button><span id="walk-motion-status" class="motion-status">Starting</span></div>
+          <p class="rig-explanation gait-legend">Stop walking slows the body, lets lifted feet land, then settles one foot at a time into the standing stance. Start walking can interrupt settling. Pause freezes time.</p>
+          <div class="resolution"><label for="walk-rate">Playback speed</label><select id="walk-rate"><option value="0.1">0.1×</option><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option></select></div>
+          <div class="button-row gait-transport">
+            <button id="walk-pause" class="button">Pause</button>
+            <button id="walk-step" class="button" title="Pause and advance 1/60 second">Step 1/60 s</button>
+            <button id="walk-restart" class="button" title="Return to zero seconds">↶ Start</button>
+          </div>
+          <div class="range-label rig-range"><label for="walk-time">Elapsed time</label><output id="walk-time-output" for="walk-time">0.000 s</output></div>
+          <input id="walk-time" type="range" min="0" max="30" step="0.001" value="0" />
+          <label class="toggle"><input id="walk-targets" type="checkbox" checked /><span>Show foot targets</span></label>
+          <p class="rig-explanation gait-legend">Blue targets show intended sole positions and lift. Floor rings mark planted feet: green within 1 cm, orange for misses. Scrubbing pauses playback. These controls are not saved in the recipe.</p>
+        </section>
+        <section id="balance-controls" class="gait-section" hidden>
+          <div class="section-heading"><h2>Support check</h2><span id="balance-feet">0 feet</span></div>
+          <p id="balance-status" class="rig-explanation">Enter Stand or Walk to inspect support.</p>
+          <label class="toggle"><input id="show-balance" type="checkbox" checked /><span>Show centre and support area</span></label>
+          <div id="standing-correction">
+            <div class="range-label rig-range"><label for="stand-strength">Torso correction</label><output id="stand-strength-output" for="stand-strength">0%</output></div>
+            <input id="stand-strength" type="range" min="0" max="1" step="0.05" value="0" />
+            <div class="range-label"><label for="stand-shift">Shift limit</label><output id="stand-shift-output" for="stand-shift">0.25 m</output></div>
+            <input id="stand-shift" type="range" min="0" max="0.5" step="0.01" value="0.25" />
+            <p id="stand-correction-status" class="rig-explanation">Increase correction to shift the torso toward support.</p>
+          </div>
+          <p class="rig-explanation gait-legend">Purple estimates the centre of mass using uniform mass over the skin surface. Green outlines the contact area under planted feet. An orange projection falls outside that area. This is a static check, not a test of balance in motion.</p>
+        </section>
         <section class="spine-section">
           <div class="section-heading"><h2>Spine</h2><span id="spine-count">5 vertebrae</span></div>
           <div class="chain-labels"><span>HEAD</span><span>TAIL</span></div>

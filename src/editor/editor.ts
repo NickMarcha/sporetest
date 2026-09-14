@@ -1,12 +1,15 @@
-import { applyMutation, createCreature, parseRecipe } from '../creature/creature.ts';
+import { applyMutation, createCreature, parseRecipe, replayRecipe } from '../creature/creature.ts';
 import type { Creature, Mutation, Recipe, Position } from '../creature/creature.ts';
-import { createViewer } from '../render/viewer.ts';
+import { createViewer, walkAroundTempo } from '../render/viewer.ts';
 import type { MeshRequest, MeshResponse } from './mesh-worker.ts';
 import type { Skin } from '../mesh/mesh.ts';
 import { mountLimbEditor } from './limb-editor.ts';
 import { createAttachedLimb, moveLimbSegment } from '../creature/attachment.ts';
 import type { LimbPreset } from '../creature/attachment.ts';
 import type { PlacementTool } from '../render/placement.ts';
+import { defaultGaitSettings } from '../anim/gait.ts';
+import type { Balance } from '../anim/balance.ts';
+import { bindPreviewURL } from './preview-url.ts';
 
 function element<T extends HTMLElement>(selector: string) {
   const found = document.querySelector<T>(selector);
@@ -18,24 +21,34 @@ export function mountEditor() {
   const host = element('#viewport');
   const status = element('#status');
   const errorMessage = element('#error');
-  let creature = createCreature();
-  let base = structuredClone(creature);
-  let mutations: Mutation[] = [];
+  const localSave = element('#local-save');
+  const storageKey = 'sporetest.current-recipe';
+  let restored: Recipe | null = null;
+  try {
+    const saved = localStorage.getItem(storageKey);
+    if (saved) { restored = parseRecipe(saved); localSave.textContent = 'Restored from this browser'; }
+  } catch {
+    localSave.textContent = 'Could not restore local save. Load a recipe to recover it.';
+  }
+  let creature = restored ? replayRecipe(restored) : createCreature();
+  let base = structuredClone(restored?.base ?? creature);
+  let mutations: Mutation[] = restored?.mutations ?? [];
   let undone: Mutation[][] = [];
-  let history: Mutation[][] = [];
+  let history: Mutation[][] = mutations.map(mutation => [mutation]);
   let gestureBase: Creature | null = null;
   let gestureMutations: Mutation[] = [];
-  let selected = creature.spine[2].id;
+  let selected = creature.spine[Math.min(2, creature.spine.length - 1)].id;
   let selectedSegment: string | null = null;
   let placementTool: PlacementTool | null = null;
   let standingPreview = false;
   let walkingPreview = false;
+  let roamSpeed = 1;
   let revision = 0;
   let busy = false;
   let queued: MeshRequest | null = null;
   let builds = 0;
   let latestSkin: Skin | null = null;
-  let needsFrame = false;
+  let needsFrame = restored !== null;
   let disposed = false;
   const listeners = new AbortController();
   const radius = element<HTMLInputElement>('#radius');
@@ -50,10 +63,32 @@ export function mountEditor() {
   const list = element('#vertebrae');
   const coordinates = ['x', 'y', 'z'].map(axis => element<HTMLInputElement>(`#position-${axis}`));
   const viewer = createViewer(host, {
-    walkingHint: (grounded, planted, error, unsupported) => {
+    performanceHint: (fps, cpu, pose, draw, gpu, worst, input) => {
+      element('#motion-performance').textContent = `${fps.toFixed(0)} fps · Frame CPU ${cpu.toFixed(1)} ms · Pose ${pose.toFixed(1)} ms · Draw submission ${draw.toFixed(1)} ms · GPU ${gpu < 0 ? 'unavailable' : `${gpu.toFixed(1)} ms`} · Worst frame gap ${worst.toFixed(1)} ms · Key handler to frame submission ${input < 0 ? 'not sampled' : `${input.toFixed(1)} ms`}`;
+    },
+    walkingHint: (grounded, planted, error, unsupported, seconds, gait, balance, transfer) => {
       if (!walkingPreview) return;
+      const around = element<HTMLInputElement>('#walk-around').checked;
       element('#viewport-hint').textContent = `${grounded}/${planted} planted feet holding contact`;
-      element('#viewport-help').textContent = `Contact error ${error.toFixed(3)} m${unsupported ? ` · ${unsupported} feet have no skin contact patch` : ''} · Camera follows travel · Orange rings mark misses · Shape to edit`;
+      element('#viewport-help').textContent = `Contact error ${error.toFixed(3)} m${unsupported ? ` · ${unsupported} feet have no skin contact patch` : ''} · ${around ? 'Click area · W/S move · A/D strafe' : 'Camera follows travel'} · Orange rings mark misses · Shape to edit`;
+      element('#roam-position').textContent = `Travel ${gait.rootTravel[0].toFixed(2)}, ${gait.rootTravel[2].toFixed(2)} m · Heading ${(gait.yaw * 180 / Math.PI).toFixed(0)}°`;
+      const timeline = element<HTMLInputElement>('#walk-time');
+      timeline.max = String(Math.max(Number(timeline.max), Math.ceil(seconds / 30) * 30));
+      timeline.value = String(seconds);
+      element<HTMLOutputElement>('#walk-time-output').value = `${seconds.toFixed(3)} s`;
+      element('#walk-motion').textContent = gait.moving ? 'Stop walking' : 'Start walking';
+      element('#walk-motion-status').textContent = gait.motion === 'settling' ? gait.settlingRemaining ? `Settling · ${gait.settlingRemaining} step${gait.settlingRemaining === 1 ? '' : 's'} left` : 'Settling · easing torso' : gait.motion[0].toUpperCase() + gait.motion.slice(1);
+      const factor = around ? roamSpeed : gait.speed > 0 ? gait.targetSpeed / gait.speed : 0;
+      element<HTMLInputElement>('#walk-speed').value = String(factor);
+      const speed = around ? Math.hypot(gait.currentSpeed, gait.currentSideX, gait.currentSideZ) : gait.currentSpeed;
+      element<HTMLOutputElement>('#walk-speed-output').value = `${factor.toFixed(2)}× · ${speed.toFixed(3)} m/s`;
+      element<HTMLInputElement>('#gait-period').value = String(gait.groups[0]?.period ?? defaultGaitSettings.period / gait.tempo);
+      element<HTMLOutputElement>('#gait-period-output').value = `${(gait.groups[0]?.period ?? defaultGaitSettings.period / gait.tempo).toFixed(2)} s`;
+      const turnDegrees = -gait.targetTurnRate * 180 / Math.PI;
+      element<HTMLInputElement>('#walk-turn').value = String(turnDegrees);
+      element<HTMLOutputElement>('#walk-turn-output').value = Math.abs(turnDegrees) < 0.01 ? 'Straight' : `${Math.abs(turnDegrees).toFixed(0)}°/s ${turnDegrees < 0 ? 'left' : 'right'}`;
+      updateBalanceHint(balance);
+      element('#walk-transfer-status').textContent = Number(element<HTMLInputElement>('#walk-transfer').value) === 0 ? 'Weight transfer off.' : `Torso shift ${transfer.toFixed(3)} m · Planted contact error ${error.toFixed(3)} m`;
     },
     select: id => {
       if (creature.spine.some(vertebra => vertebra.id === id)) selectVertebra(id);
@@ -81,6 +116,21 @@ export function mountEditor() {
     errorMessage.textContent = message;
     errorMessage.hidden = false;
     status.textContent = 'Needs attention';
+  }
+  function updateBalanceHint(balance: Balance) {
+    element('#balance-feet').textContent = `${balance.supportingFeet} supporting ${balance.supportingFeet === 1 ? 'foot' : 'feet'}`;
+    element('#balance-status').textContent = !balance.available ? 'No skin area to estimate mass.' : !balance.hullCount ? 'No planted foot contact with the floor.'
+      : balance.inside ? balance.hullCount < 3 ? 'Centre projection meets a point or line contact.' : 'Centre projection is inside the support area.'
+        : `Centre projection is ${balance.distance < 0.001 ? 'less than 0.001' : balance.distance.toFixed(3)} m outside the support area.`;
+  }
+  function saveLocal() {
+    try {
+      const recipe: Recipe = { base, mutations: gestureBase ? [...mutations, ...gestureMutations] : mutations };
+      localStorage.setItem(storageKey, JSON.stringify(recipe));
+      localSave.textContent = 'Saved in this browser';
+    } catch {
+      localSave.textContent = 'Local save failed. Use Save recipe to keep your creature.';
+    }
   }
   function dispatch() {
     if (busy || !queued || disposed) return;
@@ -120,6 +170,7 @@ export function mountEditor() {
         if (response.meshed) element('#mesh-time').textContent = `${response.milliseconds.toFixed(1)} ms`;
         element('#cell-size').textContent = `${response.skin.cellSize.toFixed(3)} m`;
         if (needsFrame) { viewer.frameCreature(); needsFrame = false; }
+        restorePreviewURL();
       }
     }
     dispatch();
@@ -156,8 +207,21 @@ export function mountEditor() {
     updatePlacementControls();
     viewer.preview(preview.checked ? Number(bend.value) * Math.PI / 180 : null, sweep.checked, Number(limbBend.value) * Math.PI / 180);
     viewer.ik(ikPreview.checked && !standingPreview && !walkingPreview);
-    const standing = viewer.stand(standingPreview);
+    const strength = Number(element<HTMLInputElement>('#stand-strength').value);
+    const maximumShift = Number(element<HTMLInputElement>('#stand-shift').value);
+    const standing = viewer.stand(standingPreview, strength, maximumShift);
     viewer.walk(walkingPreview);
+    if (!walkingPreview) element<HTMLInputElement>('#walk-around').checked = false;
+    updateRoamControls();
+    element('#gait-controls').hidden = !walkingPreview;
+    element('#balance-controls').hidden = !walkingPreview && !standingPreview;
+    element('#standing-correction').hidden = !standingPreview;
+    element<HTMLOutputElement>('#stand-strength-output').value = `${Math.round(strength * 100)}%`;
+    element<HTMLOutputElement>('#stand-shift-output').value = `${maximumShift.toFixed(2)} m`;
+    if (standing) element('#stand-correction-status').textContent = strength === 0 ? 'Correction off. Increase strength to shift the torso toward support.'
+      : !Number.isFinite(standing.correctionBefore) ? 'No foot support available for correction.'
+      : `Torso shift ${standing.correctionShift.toFixed(3)} m · Outside support ${standing.correctionBefore.toFixed(3)} → ${standing.balance.distance.toFixed(3)} m · Sole drift ${standing.anchorError.toFixed(3)} m`;
+    if (standing) updateBalanceHint(standing.balance);
     element<HTMLOutputElement>('#limb-bend-output').value = `${limbBend.value}°`;
     limbBend.disabled = !preview.checked;
     element<HTMLOutputElement>('#bend-output').value = `${bend.value}°`;
@@ -171,6 +235,11 @@ export function mountEditor() {
     updateControls();
   }
   function selectVertebra(id: string) { selected = id; selectedSegment = null; updateControls(); }
+  function updateRoamControls() {
+    const around = element<HTMLInputElement>('#walk-around').checked;
+    element('#roam-controls').hidden = !around;
+    for (const id of ['#walk-turn', '#walk-straight', '#walk-motion']) element<HTMLInputElement | HTMLButtonElement>(id).disabled = around;
+  }
   function updatePlacementControls() {
     viewer.placement(placementTool);
     for (const mode of ['shape', 'arm', 'leg', 'tail', 'ik', 'stand', 'walk']) element(`#tool-${mode}`).setAttribute('aria-pressed', String(mode === (walkingPreview ? 'walk' : standingPreview ? 'stand' : ikPreview.checked ? 'ik' : preview.checked ? 'preview' : placementTool?.kind ?? 'shape')));
@@ -189,6 +258,7 @@ export function mountEditor() {
   function beginGesture() { if (!gestureBase) { gestureBase = structuredClone(creature); gestureMutations = []; } }
   function endGesture() {
     if (!gestureBase) return;
+    const changed = gestureMutations.length > 0;
     if (gestureMutations.length) {
       history.push(gestureMutations);
       mutations.push(...gestureMutations);
@@ -196,6 +266,7 @@ export function mountEditor() {
     }
     gestureBase = null;
     gestureMutations = [];
+    if (changed) saveLocal();
     updateControls();
   }
   function mutate(change: Mutation | Mutation[]) {
@@ -211,6 +282,7 @@ export function mountEditor() {
         history.push(changes);
         mutations.push(...changes);
         undone = [];
+        saveLocal();
       }
       updateControls(changes.some(mutation => mutation.type === 'insert' || mutation.type === 'remove'));
       if (changes.some(mutation => mutation.type !== 'color')) remesh();
@@ -229,6 +301,7 @@ export function mountEditor() {
     updatePreview();
     mutations = history.flat();
     creature = mutations.reduce(applyMutation, structuredClone(base));
+    saveLocal();
     if (!creature.spine.some(item => item.id === selected)) selected = creature.spine[0].id;
     updateControls(true);
     remesh();
@@ -244,7 +317,86 @@ export function mountEditor() {
   on(element('#tool-shape'), 'click', () => setPlacement(null));
   on(element('#tool-ik'), 'click', () => { endGesture(); ikPreview.checked = standingPreview || walkingPreview || !ikPreview.checked; standingPreview = false; walkingPreview = false; preview.checked = false; updatePreview(); });
   on(element('#tool-stand'), 'click', () => { endGesture(); standingPreview = !standingPreview; walkingPreview = false; ikPreview.checked = standingPreview; preview.checked = false; updatePreview(); });
-  on(element('#tool-walk'), 'click', () => { endGesture(); walkingPreview = !walkingPreview; standingPreview = false; ikPreview.checked = walkingPreview; preview.checked = false; updatePreview(); });
+  on(element('#tool-walk'), 'click', () => {
+    endGesture();
+    if (walkingPreview) { viewer.toggleWalk(); return; }
+    walkingPreview = true; standingPreview = false; ikPreview.checked = true; preview.checked = false; updatePreview();
+  });
+  on(element('#walk-motion'), 'click', () => viewer.toggleWalk());
+  on(element<HTMLInputElement>('#show-performance'), 'change', event => {
+    const enabled = (event.target as HTMLInputElement).checked;
+    element('#motion-performance').hidden = !enabled; viewer.showPerformance(enabled);
+  });
+  on(element<HTMLInputElement>('#walk-speed'), 'input', event => {
+    const factor = Number((event.target as HTMLInputElement).value);
+    if (element<HTMLInputElement>('#walk-around').checked) roamSpeed = factor;
+    viewer.speedWalk(factor);
+  });
+  on(element<HTMLInputElement>('#walk-turn'), 'input', event => viewer.turnWalk(-Number((event.target as HTMLInputElement).value) * Math.PI / 180));
+  on(element('#walk-straight'), 'click', () => viewer.turnWalk(0));
+  on(element<HTMLInputElement>('#walk-around'), 'change', event => {
+    playback(false); viewer.walkAround((event.target as HTMLInputElement).checked); updateRoamControls();
+  });
+  for (const [id, forward, left] of [['#roam-forward', 1, 0], ['#roam-reverse', -1, 0], ['#roam-left', 0, 1], ['#roam-right', 0, -1], ['#roam-stop', 0, 0]] as const) {
+    on(element(id), 'click', () => { playback(false); viewer.driveWalk(forward, left); });
+  }
+  const gaitDuty = element<HTMLInputElement>('#gait-duty');
+  const gaitPeriod = element<HTMLInputElement>('#gait-period');
+  const gaitLift = element<HTMLInputElement>('#gait-lift');
+  const walkRate = element<HTMLSelectElement>('#walk-rate');
+  const walkPause = element<HTMLButtonElement>('#walk-pause');
+  let walkPaused = false;
+  function tuneGait() {
+    const settings = { duty: Number(gaitDuty.value), period: Number(gaitPeriod.value), lift: Number(gaitLift.value) };
+    viewer.tuneWalk(settings);
+    element<HTMLOutputElement>('#gait-duty-output').value = `${Math.round(settings.duty * 100)}% planted`;
+    element<HTMLOutputElement>('#gait-period-output').value = `${settings.period.toFixed(2)} s`;
+    element<HTMLOutputElement>('#gait-lift-output').value = `${Math.round(settings.lift * 100)}% leg length`;
+  }
+  function playback(paused = walkPaused) {
+    walkPaused = paused;
+    walkPause.textContent = paused ? 'Play' : 'Pause';
+    viewer.walkPlayback(paused, Number(walkRate.value));
+  }
+  for (const input of [gaitDuty, gaitPeriod, gaitLift]) on(input, 'input', tuneGait);
+  on(element('#gait-reset'), 'click', () => {
+    gaitDuty.value = String(defaultGaitSettings.duty);
+    gaitPeriod.value = String(defaultGaitSettings.period / (element<HTMLInputElement>('#walk-around').checked ? walkAroundTempo : 1));
+    gaitLift.value = String(defaultGaitSettings.lift);
+    tuneGait();
+  });
+  on(walkPause, 'click', () => playback(!walkPaused));
+  on(walkRate, 'change', () => playback());
+  on(element('#walk-step'), 'click', () => { playback(true); viewer.stepWalk(); });
+  on(element('#walk-restart'), 'click', () => viewer.seekWalk(0));
+  on(element<HTMLInputElement>('#walk-time'), 'input', event => {
+    playback(true); viewer.seekWalk(Number((event.target as HTMLInputElement).value));
+  });
+  on(element<HTMLInputElement>('#walk-targets'), 'change', event => viewer.showFootTargets((event.target as HTMLInputElement).checked));
+  on(element<HTMLInputElement>('#show-balance'), 'change', event => viewer.showBalance((event.target as HTMLInputElement).checked));
+  for (const id of ['walk-lean', 'walk-sway']) on(element<HTMLInputElement>(`#${id}`), 'input', () => {
+    const lean = Number(element<HTMLInputElement>('#walk-lean').value), sway = Number(element<HTMLInputElement>('#walk-sway').value);
+    viewer.reactionWalk(lean, sway);
+    element<HTMLOutputElement>('#walk-lean-output').value = `${Math.round(lean * 100)}%`;
+    element<HTMLOutputElement>('#walk-sway-output').value = `${Math.round(sway * 100)}%`;
+  });
+  on(element<HTMLInputElement>('#walk-tail'), 'input', event => {
+    const strength = Number((event.target as HTMLInputElement).value);
+    viewer.tailWalk(strength);
+    element<HTMLOutputElement>('#walk-tail-output').value = `${Math.round(strength * 100)}%`;
+  });
+  on(element<HTMLInputElement>('#walk-body'), 'input', event => {
+    const strength = Number((event.target as HTMLInputElement).value);
+    viewer.bodyWalk(strength);
+    element<HTMLOutputElement>('#walk-body-output').value = `${Math.round(strength * 100)}%`;
+  });
+  for (const id of ['#walk-transfer', '#walk-transfer-limit']) on(element<HTMLInputElement>(id), 'input', () => {
+    const strength = Number(element<HTMLInputElement>('#walk-transfer').value), limit = Number(element<HTMLInputElement>('#walk-transfer-limit').value);
+    viewer.transferWalk(strength, limit);
+    element<HTMLOutputElement>('#walk-transfer-output').value = `${Math.round(strength * 100)}%`;
+    element<HTMLOutputElement>('#walk-transfer-limit-output').value = `${limit.toFixed(2)} m`;
+  });
+  for (const id of ['#stand-strength', '#stand-shift']) on(element<HTMLInputElement>(id), 'input', updatePreview);
   on(element<HTMLInputElement>('#mirror-placement'), 'change', event => {
     if (placementTool) { placementTool.mirror = (event.target as HTMLInputElement).checked; updatePlacementControls(); }
   });
@@ -296,6 +448,7 @@ export function mountEditor() {
     base = structuredClone(nextBase);
     history = nextMutations.map(mutation => [structuredClone(mutation)]); undone = []; mutations = history.flat();
     creature = mutations.reduce(applyMutation, structuredClone(base));
+    saveLocal();
     selected = creature.spine[Math.min(2, creature.spine.length - 1)].id;
     needsFrame = true;
     updateControls(true); remesh();
@@ -345,9 +498,13 @@ export function mountEditor() {
       reportError(error instanceof Error ? error.message : 'Could not read the recipe.');
     }
   });
+  const savePendingGesture = () => { if (gestureMutations.length) saveLocal(); };
+  window.addEventListener('pagehide', savePendingGesture, { signal: listeners.signal });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') savePendingGesture(); }, { signal: listeners.signal });
   updateControls(true);
   updatePlacementControls();
   updatePreview();
+  const restorePreviewURL = bindPreviewURL(listeners.signal, () => walkingPreview ? 'walk' : standingPreview ? 'stand' : 'shape', walkAroundTempo);
   remesh();
   return () => { disposed = true; listeners.abort(); limbEditor.dispose(); worker.terminate(); viewer.dispose(); };
 }

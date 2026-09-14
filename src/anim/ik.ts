@@ -19,12 +19,20 @@ export function createIK(bones: Bone[]) {
   spine.headGoal = goals.subarray(0, 3);
   spine.tailGoal = goals.subarray((spineCount - 1) * 3, spineCount * 3);
   spine.limbGoals = limbs.goals = goals.subarray(spineCount * 3);
-  return { targets, goals, spine, limbs, spinePose: createPose(bones) };
+  return { targets, goals, spine, limbs, secondaryGoals: new Float64Array(limbs.goals.length), spinePose: createPose(bones) };
 }
 export type IK = ReturnType<typeof createIK>;
 
 /** Spine first; freeze its reconstructed pose before solving limbs. No creature mutations. */
-export function solveIK(bones: Bone[], ik: IK, output: Pose) {
+export function solveIK(bones: Bone[], ik: IK, output: Pose, limbOffsets?: Float64Array) {
   solveSpineIK(bones, ik.spine, bones[ik.spine.head].restCreature, ik.spinePose);
+  // Secondary motion acts only after the spine is frozen, so a following tail
+  // cannot pull the torso away from its supporting feet.
+  const goals = ik.limbs.goals;
+  if (limbOffsets) {
+    for (let i = 0; i < goals.length; i++) ik.secondaryGoals[i] = goals[i] + limbOffsets[i];
+    ik.limbs.goals = ik.secondaryGoals;
+  }
   solveLimbIK(bones, ik.limbs, ik.spinePose, output);
+  ik.limbs.goals = goals;
 }

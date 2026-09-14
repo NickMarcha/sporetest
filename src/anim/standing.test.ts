@@ -66,6 +66,59 @@ test('no-foot creatures remain at rest and invalid floors are rejected', () => {
   assert.throws(() => writeStandingPose(state.skin, state.rig, state.stance, NaN, state.pose));
 });
 
+test('torso correction improves support with bounded travel and planted soles', () => {
+  for (const count of [1, 2, 4]) {
+    const state = fixture(count), before = structuredClone(state.creature);
+    writeStandingPose(state.skin, state.rig, state.stance, 0, state.pose);
+    const distance = state.stance.balance.distance, error = state.stance.maximumError;
+    const gaps = state.stance.gaps.slice();
+    writeStandingPose(state.skin, state.rig, state.stance, 0, state.pose, 1, 0.1);
+    assert.ok(state.stance.balance.distance <= distance);
+    if (distance > 0.01) assert.ok(state.stance.balance.distance < distance, `no improvement for ${count} feet at ${distance}`);
+    assert.ok(state.stance.correctionShift <= 0.1);
+    assert.ok(state.stance.maximumError <= error + 0.0001);
+    state.stance.gaps.forEach((gap, foot) => assert.ok(Math.abs(gap) <= Math.abs(gaps[foot]) + 0.0001));
+    assert.ok(state.stance.anchorError <= 0.002);
+    assert.equal(state.stance.grounded, count);
+    assert.deepEqual(state.creature, before);
+    const expected = structuredClone(state.pose);
+    writeStandingPose(state.skin, state.rig, state.stance, 0, state.pose, 1, 0.1);
+    assert.deepEqual(state.pose, expected);
+  }
+});
+
+test('partial strength bounds correction by the requested fraction of the support distance', () => {
+  const state = fixture(1);
+  writeStandingPose(state.skin, state.rig, state.stance, 0, state.pose);
+  const distance = state.stance.balance.distance;
+  assert.ok(distance > 0);
+  writeStandingPose(state.skin, state.rig, state.stance, 0, state.pose, 0.5, 10);
+  assert.ok(state.stance.correctionShift > 0);
+  assert.ok(state.stance.correctionShift <= distance * 0.5);
+  const expected = structuredClone(state.pose);
+  writeStandingPose(state.skin, state.rig, state.stance, 3, state.pose, 0.5, 10);
+  state.pose.creature.forEach((matrix, bone) => matrix.forEach((value, axis) => {
+    assert.ok(Math.abs(value - expected.creature[bone][axis] - (axis === 13 ? 3 : 0)) < 1e-4);
+  }));
+});
+
+test('correction off, zero limit and absent support preserve the baseline', () => {
+  for (const count of [0, 2]) {
+    const state = fixture(count);
+    writeStandingPose(state.skin, state.rig, state.stance, 0, state.pose);
+    const expected = structuredClone(state.pose);
+    writeStandingPose(state.skin, state.rig, state.stance, 0, state.pose, 1, 0);
+    assert.deepEqual(state.pose, expected);
+    if (!count) {
+      writeStandingPose(state.skin, state.rig, state.stance, 0, state.pose, 1, 0.5);
+      assert.deepEqual(state.pose, expected);
+    }
+    for (const [strength, limit] of [[-1, 0.1], [2, 0.1], [NaN, 0.1], [1, -1], [1, Infinity]]) {
+      assert.throws(() => writeStandingPose(state.skin, state.rig, state.stance, 0, state.pose, strength, limit));
+    }
+  }
+});
+
 test('a fixed foot that cannot reach reports missed contact and keeps the rest torso above ground', () => {
   const creature = createCreature(); creature.spine = creature.spine.slice(0, 1);
   creature.spine[0].position = [0, 0, 0]; creature.spine[0].radius = 0.8;

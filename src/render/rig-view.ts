@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import { createPose, writeBendPose } from '../anim/pose.ts';
 import { createIK, solveIK } from '../anim/ik.ts';
 import { createStanding, writeStandingPose } from '../anim/standing.ts';
-import { createWalking, writeWalkingPose } from '../anim/walking.ts';
+import { createWalking, writeWalkingPose, configureWeightTransfer, configureBodyMotion, configureTailMotion, configureMovementReaction } from '../anim/walking.ts';
 import type { Walking } from '../anim/walking.ts';
+import { configureGait, sampleGait, setGaitMoving, setGaitSpeed, setGaitTurn, moveGait } from '../anim/gait.ts';
+import type { GaitSettings } from '../anim/gait.ts';
 import { packWeights } from '../rig/weights.ts';
 import type { Rig } from '../rig/rig.ts';
 import type { Skin } from '../mesh/mesh.ts';
@@ -74,12 +76,25 @@ export function createRigView(skin: Skin, rig: Rig, material: THREE.MeshStandard
     mesh, overlay, positions, bend,
     targets, goals: ik.goals,
     stance,
-    startWalk(floorY: number) { walking = createWalking(skin, rig, floorY, pose); return walking; },
+    startWalk(floorY: number, tempo = 1) { walking = createWalking(skin, rig, floorY, pose, tempo); return walking; },
+    tuneWalk(settings: GaitSettings) { if (walking) configureGait(walking.gait, settings); },
+    reactionWalk(lean: number, sway: number) { if (walking) configureMovementReaction(walking, lean, sway); },
+    tailWalk(strength: number) { if (walking) configureTailMotion(walking, strength); },
+    bodyWalk(strength: number) { if (walking) configureBodyMotion(walking, strength); },
+    transferWalk(strength: number, maximumShift: number) { if (walking) configureWeightTransfer(walking, strength, maximumShift); },
+    toggleWalk(seconds: number) {
+      if (!walking) return;
+      sampleGait(walking.gait, seconds);
+      setGaitMoving(walking.gait, seconds, !walking.gait.moving);
+    },
+    speedWalk(seconds: number, factor: number) { if (walking) setGaitSpeed(walking.gait, seconds, walking.gait.speed * factor); },
+    turnWalk(seconds: number, radiansPerSecond: number) { if (walking) setGaitTurn(walking.gait, seconds, radiansPerSecond); },
+    driveWalk(seconds: number, forward: number, left: number, factor = 1) { if (walking) moveGait(walking.gait, seconds, forward, left, factor); },
     walk(seconds: number) {
       if (!walking) return null;
       writeWalkingPose(skin, rig, walking, seconds, pose); update(); return walking;
     },
-    stand(floorY: number) { writeStandingPose(skin, rig, stance, floorY, pose); update(); return stance; },
+    stand(floorY: number, strength: number, maximumShift: number) { writeStandingPose(skin, rig, stance, floorY, pose, strength, maximumShift); update(); return stance; },
     solve() {
       solveIK(rig.bones, ik, pose);
       update();

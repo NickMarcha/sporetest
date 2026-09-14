@@ -8,6 +8,12 @@ import { resolveStructure } from '../creature/structure.ts';
 import type { AttachmentPoint } from '../creature/attachment.ts';
 import { createPlacementPreview } from './placement.ts';
 import type { PlacementTool } from './placement.ts';
+import { defaultGaitSettings } from '../anim/gait.ts';
+import type { Gait, GaitSettings } from '../anim/gait.ts';
+import type { Balance } from '../anim/balance.ts';
+import { createBalanceView } from './balance-view.ts';
+
+export const walkAroundTempo = 3;
 
 export function createViewer(host: HTMLElement, events: {
   select: (id: string) => void;
@@ -16,7 +22,8 @@ export function createViewer(host: HTMLElement, events: {
   end: () => void;
   place: (hits: AttachmentPoint[]) => void;
   placementHint: (count: number) => void;
-  walkingHint: (grounded: number, planted: number, error: number, unsupported: number) => void;
+  performanceHint: (fps: number, cpu: number, pose: number, draw: number, gpu: number, worst: number, input: number) => void;
+  walkingHint: (grounded: number, planted: number, error: number, unsupported: number, seconds: number, gait: Gait, balance: Balance, transfer: number) => void;
 }) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -25,8 +32,14 @@ export function createViewer(host: HTMLElement, events: {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;
   renderer.domElement.setAttribute('aria-label', 'Creature viewport. Drag a vertebra to shape the spine. Drag empty space to orbit.');
+  // This Three.js renderer requires WebGL 2; its installed declaration still includes WebGL 1.
+  const gl = renderer.getContext() as WebGL2RenderingContext;
+  const gpuTimer = gl.getExtension('EXT_disjoint_timer_query_webgl2') as { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null;
+  let gpuQuery: WebGLQuery | null = null, gpuPending = false, gpuTime = 0, gpuSamples = 0;
   host.prepend(renderer.domElement);
   const scene = new THREE.Scene();
+  const walkingFrame = new THREE.Group(); scene.add(walkingFrame);
+  const balanceView = createBalanceView(walkingFrame);
   const placement = createPlacementPreview(scene);
   let placementTool: PlacementTool | null = null;
   let skinReady = false;
@@ -51,8 +64,15 @@ export function createViewer(host: HTMLElement, events: {
   grid.material.transparent = true;
   grid.material.opacity = 0.25;
   scene.add(grid);
+  const area = new THREE.Group(); area.visible = false; scene.add(area);
+  const markGeometry = new THREE.RingGeometry(0.16, 0.22, 20);
+  const markMaterial = new THREE.MeshBasicMaterial({ color: '#648a78', side: THREE.DoubleSide });
+  for (let x = -10; x <= 10; x += 5) for (let z = -10; z <= 10; z += 5) {
+    const mark = new THREE.Mesh(markGeometry, markMaterial);
+    mark.rotation.x = -Math.PI / 2; mark.position.set(x, 0, z); area.add(mark);
+  }
   const handles = new THREE.Group();
-  scene.add(handles);
+  walkingFrame.add(handles);
   const targets = new THREE.Group();
   targets.visible = false;
   scene.add(targets);
@@ -61,10 +81,28 @@ export function createViewer(host: HTMLElement, events: {
   let ikMode = false;
   let standingMode = false;
   let walkingMode = false;
+  let around = false;
+  let aroundSpeed = 1;
+  const held = new Set<string>();
+  const savedCamera = new THREE.Vector3(), savedTarget = new THREE.Vector3(), followed = new THREE.Vector3();
   let walkingTime = 0;
+  let walkingClock = performance.now();
   let walkingReportTime = 0;
+  let walkingPaused = false;
+  let walkingRate = 1;
+  let showTimings = false, timingFrames = 0, timingElapsed = 0, timingCpu = 0, timingPose = 0, timingDraw = 0, timingWorst = 0;
+  let inputAt = -1, inputDelay = -1;
+  let walkingDirty = true;
+  let gaitSettings = { ...defaultGaitSettings };
+  let transferStrength = 0, transferLimit = 0.15;
+  let bodyStrength = 0.5, tailStrength = 0.7;
+  let leanStrength = 0.5, swayStrength = 0.7;
+  let showFootTargets = true;
+  const footTargets = new THREE.Group();
+  walkingFrame.add(footTargets);
+  const footTargetMaterial = new THREE.MeshBasicMaterial({ color: '#416eaa', wireframe: true, depthTest: false });
   const contacts = new THREE.Group();
-  scene.add(contacts);
+  walkingFrame.add(contacts);
   const contactGeometry = new THREE.RingGeometry(0.11, 0.15, 24);
   const contactMaterial = new THREE.MeshBasicMaterial({ color: '#527b60', side: THREE.DoubleSide });
   const missedContactMaterial = new THREE.MeshBasicMaterial({ color: '#db6a3a', side: THREE.DoubleSide });
@@ -76,7 +114,7 @@ export function createViewer(host: HTMLElement, events: {
   const spineLine = new THREE.Line(new THREE.BufferGeometry(), lineMaterial);
   spineLine.frustumCulled = false;
   spineLine.renderOrder = 2;
-  scene.add(spineLine);
+  walkingFrame.add(spineLine);
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   const plane = new THREE.Plane();
@@ -101,6 +139,7 @@ export function createViewer(host: HTMLElement, events: {
     raycaster.setFromCamera(pointer, camera);
   }
   function pointerDown(event: PointerEvent) {
+    if (around) renderer.domElement.focus();
     if (event.button !== 0 || previewAngle !== null || standingMode || walkingMode) return;
     updateRay(event);
     if (ikMode) {
@@ -196,6 +235,45 @@ export function createViewer(host: HTMLElement, events: {
   renderer.domElement.addEventListener('pointercancel', pointerEnd);
   renderer.domElement.addEventListener('lostpointercapture', pointerEnd);
   renderer.domElement.addEventListener('pointerleave', pointerLeave);
+  function advanceWalkingClock(now: number) {
+    if (walkingMode && !walkingPaused && !document.hidden) walkingTime += Math.max(0, now - walkingClock) / 1000 * walkingRate;
+    walkingClock = now;
+  }
+  function drive(forward: number, left: number) {
+    if (!around || !walkingMode || walkingPaused) return;
+    advanceWalkingClock(performance.now());
+    rigView?.driveWalk(walkingTime, forward, left, aroundSpeed); walkingDirty = true; walkingReportTime = 0;
+  }
+  function releaseDrive() {
+    held.clear();
+    advanceWalkingClock(performance.now());
+    if (around) { rigView?.driveWalk(walkingTime, 0, 0); walkingDirty = true; walkingReportTime = 0; }
+  }
+  function keyboardDrive(event: KeyboardEvent) {
+    const key = event.key.toLowerCase();
+    if (!around || !['w', 'a', 's', 'd'].includes(key) || event.ctrlKey || event.metaKey || event.altKey) return;
+    event.preventDefault();
+    if (held.has(key)) return;
+    inputAt = performance.now();
+    held.add(key); drive(Number(held.has('w')) - Number(held.has('s')), Number(held.has('a')) - Number(held.has('d')));
+  }
+  function keyboardRelease(event: KeyboardEvent) {
+    if (!held.delete(event.key.toLowerCase())) return;
+    inputAt = performance.now();
+    drive(Number(held.has('w')) - Number(held.has('s')), Number(held.has('a')) - Number(held.has('d')));
+  }
+  function visibilityDrive() {
+    if (document.hidden) releaseDrive();
+    lastTime = performance.now();
+    walkingClock = lastTime;
+    timingFrames = timingElapsed = timingCpu = timingPose = timingDraw = timingWorst = 0;
+    gpuTime = gpuSamples = 0;
+  }
+  renderer.domElement.addEventListener('keydown', keyboardDrive);
+  renderer.domElement.addEventListener('blur', releaseDrive);
+  window.addEventListener('keyup', keyboardRelease);
+  window.addEventListener('blur', releaseDrive);
+  document.addEventListener('visibilitychange', visibilityDrive);
   const resize = new ResizeObserver(() => {
     const width = host.clientWidth;
     const height = host.clientHeight;
@@ -205,26 +283,47 @@ export function createViewer(host: HTMLElement, events: {
   });
   resize.observe(host);
   function draw(time = performance.now()) {
-    const delta = Math.min(0.1, Math.max(0, (time - lastTime) / 1000));
+    const frameStart = performance.now(), interval = Math.max(0, time - lastTime);
+    let poseCost = 0;
+    const delta = Math.max(0, (time - lastTime) / 1000);
     lastTime = time;
+    // Poses sample an analytic timeline, so a slow visible frame can skip ahead
+    // without simulating missing frames or silently dropping movement time.
+    advanceWalkingClock(frameStart);
     if (rigView && (previewAngle !== null || ikMode || standingMode || walkingMode)) {
       if (walkingMode) {
-        walkingTime += delta;
-        const walk = rigView.walk(walkingTime);
+        const poseStart = performance.now();
+        const walk = !walkingPaused || walkingDirty ? rigView.walk(walkingTime) : null;
+        poseCost = performance.now() - poseStart;
         if (walk) {
-          // Follow the translating creature. One-metre grid cells wrap outside the view.
-          grid.position.x = -walk.gait.rootTravel[0] % 1;
-          grid.position.z = -walk.gait.rootTravel[2] % 1;
+          walkingDirty = false;
+          balanceView.update(walk.stance.balance);
+          const yaw = walk.gait.yaw, c = Math.cos(yaw), s = Math.sin(yaw), pivot = walk.gait.pivot;
+          walkingFrame.rotation.y = yaw;
+          walkingFrame.position.set(pivot[0] - c * pivot[0] - s * pivot[2], 0, pivot[2] + s * pivot[0] - c * pivot[2]);
+          if (around) {
+            const x = walk.gait.rootTravel[0], z = walk.gait.rootTravel[2];
+            walkingFrame.position.x += x; walkingFrame.position.z += z;
+            camera.position.x += x - followed.x; camera.position.z += z - followed.z;
+            orbit.target.x += x - followed.x; orbit.target.z += z - followed.z;
+            followed.set(x, 0, z);
+            grid.position.x = 0; grid.position.z = 0;
+          } else {
+            // Treadmill preview follows translation; fixed-area mode moves the creature itself.
+            grid.position.x = -walk.gait.rootTravel[0] % 1;
+            grid.position.z = -walk.gait.rootTravel[2] % 1;
+          }
           for (let foot = 0; foot < contacts.children.length; foot++) {
             const marker = contacts.children[foot] as THREE.Mesh;
             marker.visible = !!walk.gait.planted[foot];
             marker.position.set(walk.soles[foot * 3] + walk.gait.offsets[foot * 3], grid.position.y + 0.003, walk.soles[foot * 3 + 2] + walk.gait.offsets[foot * 3 + 2]);
             const error = Math.hypot(marker.position.x - walk.actual[foot * 3], walk.stance.gaps[foot], marker.position.z - walk.actual[foot * 3 + 2]);
             marker.material = error <= 0.01 ? contactMaterial : missedContactMaterial;
+            footTargets.children[foot].position.set(marker.position.x, grid.position.y + walk.gait.offsets[foot * 3 + 1], marker.position.z);
           }
-          if (walkingTime >= walkingReportTime) {
-            walkingReportTime = walkingTime + 0.2;
-            events.walkingHint(walk.grounded, walk.planted, walk.maximumError, walk.stance.unsupported);
+          if (time >= walkingReportTime) {
+            walkingReportTime = time + 100;
+            events.walkingHint(walk.grounded, walk.planted, walk.maximumError, walk.stance.unsupported, walkingTime, walk.gait, walk.stance.balance, Math.hypot(walk.transfer.offset[0], walk.transfer.offset[2]));
           }
         }
       }
@@ -244,7 +343,26 @@ export function createViewer(host: HTMLElement, events: {
       }
     }
     orbit.update();
+    if (gpuQuery && gpuPending && gl.getQueryParameter(gpuQuery, gl.QUERY_RESULT_AVAILABLE)) {
+      if (!gl.getParameter(gpuTimer!.GPU_DISJOINT_EXT)) { gpuTime += gl.getQueryParameter(gpuQuery, gl.QUERY_RESULT) / 1e6; gpuSamples++; }
+      gpuPending = false;
+    }
+    const measuredQuery = showTimings && !gpuPending ? gpuQuery : null;
+    if (measuredQuery) gl.beginQuery(gpuTimer!.TIME_ELAPSED_EXT, measuredQuery);
+    const drawStart = performance.now();
     renderer.render(scene, camera);
+    const finished = performance.now();
+    if (measuredQuery) { gl.endQuery(gpuTimer!.TIME_ELAPSED_EXT); gpuPending = true; }
+    if (inputAt >= 0) { inputDelay = finished - inputAt; inputAt = -1; }
+    if (showTimings && !document.hidden) {
+      timingFrames++; timingElapsed += interval; timingCpu += finished - frameStart;
+      timingPose += poseCost; timingDraw += finished - drawStart; timingWorst = Math.max(timingWorst, interval);
+      if (timingElapsed >= 1000) {
+        events.performanceHint(timingFrames * 1000 / timingElapsed, timingCpu / timingFrames, timingPose / timingFrames, timingDraw / timingFrames, gpuSamples ? gpuTime / gpuSamples : -1, timingWorst, inputDelay);
+        timingFrames = timingElapsed = timingCpu = timingPose = timingDraw = timingWorst = 0;
+        gpuTime = gpuSamples = 0;
+      }
+    }
     frame = requestAnimationFrame(draw);
   }
   draw();
@@ -275,11 +393,15 @@ export function createViewer(host: HTMLElement, events: {
     spineLine.geometry = geometry;
   }
 
-  function stand(value: boolean) {
+  let standingStrength = 0, standingMaximumShift = 0.25;
+  function stand(value: boolean, strength = standingStrength, maximumShift = standingMaximumShift) {
+    standingStrength = strength; standingMaximumShift = maximumShift;
     standingMode = value; contacts.visible = value;
+    balanceView.show(value || walkingMode);
     if (!rigView) return;
     if (!value) return;
-    const stance = rigView.stand(grid.position.y);
+    const stance = rigView.stand(grid.position.y, strength, maximumShift);
+    balanceView.update(stance.balance);
     contacts.clear();
     stance.contacts.forEach((_, index) => {
       const marker = new THREE.Mesh(contactGeometry, Math.abs(stance.gaps[index]) <= 0.01 ? contactMaterial : missedContactMaterial);
@@ -287,26 +409,98 @@ export function createViewer(host: HTMLElement, events: {
       marker.position.fromArray(stance.contactPositions, index * 3); marker.position.y += 0.003;
       contacts.add(marker);
     });
-    return { total: stance.contacts.length + stance.unsupported, grounded: stance.grounded, error: stance.maximumError };
+    return { total: stance.contacts.length + stance.unsupported, grounded: stance.grounded, error: stance.maximumError, balance: stance.balance, correctionShift: stance.correctionShift, correctionBefore: stance.correctionBefore, anchorError: stance.anchorError };
   }
 
   function walk(value: boolean) {
-    walkingMode = value; walkingTime = 0; walkingReportTime = 0;
+    held.clear();
+    if (!value && around) endAround();
+    walkingMode = value; walkingTime = 0; walkingReportTime = 0; walkingClock = performance.now();
+    balanceView.show(value || standingMode);
+    walkingDirty = true;
+    footTargets.visible = value && showFootTargets;
     grid.position.x = 0; grid.position.z = 0;
+    walkingFrame.rotation.y = 0; walkingFrame.position.set(0, 0, 0);
     if (!value) { contacts.visible = standingMode; return; }
     if (!rigView) return;
-    const walking = rigView.startWalk(grid.position.y);
+    const walking = rigView.startWalk(grid.position.y, around ? walkAroundTempo : 1);
+    if (around) rigView.driveWalk(0, 0, 0);
+    rigView.tuneWalk({ ...gaitSettings, period: gaitSettings.period / (around ? walkAroundTempo : 1) });
+    rigView.transferWalk(transferStrength, transferLimit);
+    rigView.bodyWalk(bodyStrength);
+    rigView.tailWalk(tailStrength);
+    rigView.reactionWalk(leanStrength, swayStrength);
+    footTargets.clear();
     contacts.clear(); contacts.visible = true;
     for (const _ of walking.stance.contacts) {
       const marker = new THREE.Mesh(contactGeometry, contactMaterial);
       marker.rotation.x = -Math.PI / 2; contacts.add(marker);
+      const target = new THREE.Mesh(targetGeometry, footTargetMaterial);
+      target.scale.setScalar(0.65); target.renderOrder = 4; footTargets.add(target);
     }
+  }
+
+  function endAround() {
+    around = false; area.visible = false;
+    camera.position.copy(savedCamera); orbit.target.copy(savedTarget); followed.set(0, 0, 0);
+    renderer.domElement.tabIndex = -1;
+    renderer.domElement.setAttribute('aria-label', 'Creature viewport. Drag a vertebra to shape the spine. Drag empty space to orbit.');
+    orbit.update();
   }
 
   return {
     setCreature,
     stand,
     walk,
+    showPerformance(value: boolean) {
+      showTimings = value;
+      timingFrames = timingElapsed = timingCpu = timingPose = timingDraw = timingWorst = 0;
+      if (gpuQuery) gl.deleteQuery(gpuQuery);
+      gpuQuery = value && gpuTimer ? gl.createQuery() : null; gpuPending = false; gpuTime = gpuSamples = 0;
+    },
+    walkAround(value: boolean) {
+      if (value === around) return;
+      if (value) {
+        savedCamera.copy(camera.position); savedTarget.copy(orbit.target); followed.set(0, 0, 0);
+        around = true; area.visible = true; area.position.y = grid.position.y + 0.004;
+        renderer.domElement.tabIndex = 0;
+        renderer.domElement.setAttribute('aria-label', 'Walk around area. W and S move, A and D strafe.');
+      } else endAround();
+      walk(walkingMode);
+      if (value) renderer.domElement.focus();
+    },
+    driveWalk(forward: number, left: number) { held.clear(); drive(forward, left); renderer.domElement.focus(); },
+    toggleWalk() { advanceWalkingClock(performance.now()); rigView?.toggleWalk(walkingTime); walkingDirty = true; walkingReportTime = 0; },
+    reactionWalk(lean: number, sway: number) { leanStrength = lean; swayStrength = sway; rigView?.reactionWalk(lean, sway); walkingDirty = true; walkingReportTime = 0; },
+    tailWalk(strength: number) { tailStrength = strength; rigView?.tailWalk(strength); walkingDirty = true; walkingReportTime = 0; },
+    bodyWalk(strength: number) { bodyStrength = strength; rigView?.bodyWalk(strength); walkingDirty = true; walkingReportTime = 0; },
+    transferWalk(strength: number, maximumShift: number) {
+      transferStrength = strength; transferLimit = maximumShift;
+      rigView?.transferWalk(strength, maximumShift); walkingDirty = true; walkingReportTime = 0;
+    },
+    speedWalk(factor: number) {
+      advanceWalkingClock(performance.now());
+      if (around) aroundSpeed = factor;
+      else rigView?.speedWalk(walkingTime, factor);
+      walkingDirty = true; walkingReportTime = 0;
+    },
+    turnWalk(radiansPerSecond: number) { advanceWalkingClock(performance.now()); rigView?.turnWalk(walkingTime, radiansPerSecond); walkingDirty = true; walkingReportTime = 0; },
+    tuneWalk(settings: GaitSettings) {
+      gaitSettings = { ...settings, period: settings.period * (around ? walkAroundTempo : 1) }; rigView?.tuneWalk(settings);
+      walkingDirty = true; walkingReportTime = 0;
+    },
+    walkPlayback(paused: boolean, rate: number) {
+      advanceWalkingClock(performance.now());
+      if (paused) releaseDrive();
+      walkingPaused = paused; walkingRate = rate;
+      walkingDirty = true; walkingReportTime = 0;
+    },
+    seekWalk(seconds: number) {
+      walkingTime = Math.max(0, seconds); walkingClock = performance.now(); walkingDirty = true; walkingReportTime = 0;
+    },
+    stepWalk() { walkingTime += 1 / 60; walkingClock = performance.now(); walkingDirty = true; walkingReportTime = 0; },
+    showFootTargets(value: boolean) { showFootTargets = value; footTargets.visible = walkingMode && value; },
+    showBalance(value: boolean) { balanceView.enabled(value); },
     placement(tool: PlacementTool | null) {
       placementTool = tool; placement.hide();
       placement.active(!!tool);
@@ -314,8 +508,9 @@ export function createViewer(host: HTMLElement, events: {
     },
     skinPending() { skinReady = false; placement.hide(); },
     setSkin(skin: Skin, rig: Rig) {
-      if (rigView) { scene.remove(rigView.mesh, rigView.overlay); rigView.dispose(); }
+      if (rigView) { walkingFrame.remove(rigView.mesh, rigView.overlay); rigView.dispose(); }
       rigView = createRigView(skin, rig, material);
+      balanceView.resize(skin.positions.length / 3);
       targets.clear();
       rigView.targets.forEach((target, index) => {
         const handle = new THREE.Mesh(targetGeometry, targetMaterial);
@@ -326,9 +521,10 @@ export function createViewer(host: HTMLElement, events: {
       });
       placement.setSkin(skin);
       skinReady = true;
-      scene.add(rigView.mesh, rigView.overlay);
+      walkingFrame.add(rigView.mesh, rigView.overlay);
       rigView.overlay.visible = shown;
       grid.position.y = (rigView.mesh.geometry.boundingBox?.min.y ?? -1) - 0.08;
+      area.position.y = grid.position.y + 0.004;
       stand(standingMode);
       walk(walkingMode);
       return rigView.maximumDiscarded;
@@ -352,7 +548,7 @@ export function createViewer(host: HTMLElement, events: {
       if (!rigView) return;
       rigView.mesh.updateMatrixWorld(true);
       rigView.mesh.computeBoundingBox();
-      const bounds = rigView.mesh.boundingBox!;
+      const bounds = rigView.mesh.boundingBox!.clone().applyMatrix4(rigView.mesh.matrixWorld);
       if (bounds.isEmpty()) return;
       const center = bounds.getCenter(new THREE.Vector3());
       const size = bounds.getSize(new THREE.Vector3()).length();
@@ -371,15 +567,24 @@ export function createViewer(host: HTMLElement, events: {
       renderer.domElement.removeEventListener('pointercancel', pointerEnd);
       renderer.domElement.removeEventListener('lostpointercapture', pointerEnd);
       renderer.domElement.removeEventListener('pointerleave', pointerLeave);
+      renderer.domElement.removeEventListener('keydown', keyboardDrive);
+      renderer.domElement.removeEventListener('blur', releaseDrive);
+      window.removeEventListener('keyup', keyboardRelease);
+      window.removeEventListener('blur', releaseDrive);
+      document.removeEventListener('visibilitychange', visibilityDrive);
+      markGeometry.dispose(); markMaterial.dispose();
       placement.dispose();
+      balanceView.dispose();
       rigView?.dispose();
       spineLine.geometry.dispose();
       handleGeometry.dispose();
       targetGeometry.dispose(); targetMaterial.dispose();
+      footTargetMaterial.dispose();
       contactGeometry.dispose(); contactMaterial.dispose(); missedContactMaterial.dispose();
       grid.geometry.dispose();
       grid.material.dispose();
       material.dispose(); normalMaterial.dispose(); selectedMaterial.dispose(); lineMaterial.dispose();
+      if (gpuQuery) gl.deleteQuery(gpuQuery);
       renderer.dispose();
       renderer.domElement.remove();
     },
