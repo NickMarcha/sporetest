@@ -9,7 +9,7 @@ export type GaitSettings = typeof defaultGaitSettings;
 // Keeping commands, rather than frame history, makes backward scrubbing repeatable.
 type SettlingStep = { liftOff: number; touchdown: number; fromX: number; fromZ: number; toX: number; toZ: number; fromYaw: number; toYaw: number; height: number };
 type FlightRedirect = { fromX: number; fromZ: number; velocityX: number; velocityZ: number; toX: number; toZ: number };
-type TravelCommand = { seconds: number; speedSeconds: number; rampSeconds: number; linear: boolean; moving: boolean; distance: number; fromSpeed: number; toSpeed: number; fromSideX: number; fromSideZ: number; toSideX: number; toSideZ: number; x: number; z: number; yaw: number; curvature: number; starts: Float64Array; startTriggers: Float64Array; loads: Float64Array; loadRates: Float64Array; settles: (SettlingStep | null)[]; redirects: (FlightRedirect | null)[] };
+type TravelCommand = { seconds: number; speedSeconds: number; rampSeconds: number; linear: boolean; moving: boolean; distance: number; fromSpeed: number; toSpeed: number; fromSideX: number; fromSideZ: number; toSideX: number; toSideZ: number; x: number; z: number; yaw: number; curvature: number; starts: Float64Array; startTriggers: Float64Array; loads: Float64Array; loadRates: Float64Array; settles: (SettlingStep | null)[]; redirects: (FlightRedirect | null)[]; recoveries: Uint8Array };
 const transitionSeconds = 0.6;
 /** Seconds reserved to unload a foot before the first step after a start. */
 export const preparationSeconds = 0.25;
@@ -130,11 +130,11 @@ export function createGait(rig: Rig, stance: Standing, tempo = 1) {
   const loads = new Float64Array(legs.length).fill(1), loadRates = new Float64Array(legs.length);
   const pivot = new Float64Array(3);
   for (const bone of spine) { pivot[0] += bone.restCreature[12] / spine.length; pivot[2] += bone.restCreature[14] / spine.length; }
-  const commands: TravelCommand[] = [{ seconds: 0, speedSeconds: 0, rampSeconds: transitionSeconds / tempo, linear: false, moving: true, distance: 0, fromSpeed: 0, toSpeed: speed, fromSideX: 0, fromSideZ: 0, toSideX: 0, toSideZ: 0, x: 0, z: 0, yaw: 0, curvature: 0, starts: new Float64Array(groups.length).fill(preparationSeconds / tempo), startTriggers: new Float64Array(groups.length), loads: loads.slice(), loadRates: loadRates.slice(), settles: [], redirects: [] }];
+  const commands: TravelCommand[] = [{ seconds: 0, speedSeconds: 0, rampSeconds: transitionSeconds / tempo, linear: false, moving: true, distance: 0, fromSpeed: 0, toSpeed: speed, fromSideX: 0, fromSideZ: 0, toSideX: 0, toSideZ: 0, x: 0, z: 0, yaw: 0, curvature: 0, starts: new Float64Array(groups.length).fill(preparationSeconds / tempo), startTriggers: new Float64Array(groups.length), loads: loads.slice(), loadRates: loadRates.slice(), settles: [], redirects: [], recoveries: new Uint8Array(groups.length) }];
   return { legs, groups, tempo, duty: defaultGaitSettings.duty, lift: defaultGaitSettings.lift, speed, commands, currentSideX: 0, currentSideZ: 0,
     moving: true, targetSpeed: speed, currentSpeed: 0, motion: 'starting' as 'starting' | 'accelerating' | 'slowing' | 'walking' | 'stopping' | 'settling' | 'standing', direction: new Float64Array([dx, 0, dz]),
     rootTravel: new Float64Array(3), yaw: 0, curvature: 0, turnRate: 0, targetTurnRate: 0, pivot, soles: stance.contactPositions.slice(), pathScratch: new Float64Array(3),
-    offsets: new Float64Array(legs.length * 3), footVelocity: new Float64Array(legs.length * 2), landingPositions: new Float64Array(legs.length * 2), footYaw: new Float64Array(legs.length), planted: new Uint8Array(legs.length), touchdowns: new Float64Array(legs.length), loads, loadRates, settlingRemaining: 0 };
+    offsets: new Float64Array(legs.length * 3), footVelocity: new Float64Array(legs.length * 2), landingPositions: new Float64Array(legs.length * 2), footYaw: new Float64Array(legs.length), planted: new Uint8Array(legs.length), touchdowns: new Float64Array(legs.length), nextLiftOffs: new Float64Array(legs.length), loads, loadRates, settlingRemaining: 0 };
 }
 export type Gait = ReturnType<typeof createGait>;
 
@@ -230,7 +230,7 @@ function setTravelCommand(gait: Gait, seconds: number, speed: number, curvature?
   const response = Math.max(1e-6, gait.speed > 0 ? change / (gait.speed * (moving ? 12 : 20)) : 0.05);
   const command: TravelCommand = { seconds, speedSeconds: keepSpeedRamp ? previous.speedSeconds : seconds, rampSeconds: keepSpeedRamp ? previous.rampSeconds : linear ? response : transitionSeconds / gait.tempo, linear, moving, distance: previous ? travelDistance(previous, seconds) : 0,
     fromSideX: keepSpeedRamp ? previous.fromSideX : fromSideX, fromSideZ: keepSpeedRamp ? previous.fromSideZ : fromSideZ, toSideX: sideX, toSideZ: sideZ,
-    fromSpeed: keepSpeedRamp ? previous.fromSpeed : previous ? travelSpeed(previous, seconds) : 0, toSpeed: speed, x, z, yaw, curvature: nextCurvature, starts, startTriggers, loads, loadRates, settles: [], redirects: [] };
+    fromSpeed: keepSpeedRamp ? previous.fromSpeed : previous ? travelSpeed(previous, seconds) : 0, toSpeed: speed, x, z, yaw, curvature: nextCurvature, starts, startTriggers, loads, loadRates, settles: [], redirects: [], recoveries: new Uint8Array(gait.groups.length) };
   gait.commands.push(command);
   if (linear) {
     const c = Math.cos(oldYaw), s = Math.sin(oldYaw);
@@ -248,7 +248,46 @@ function setTravelCommand(gait: Gait, seconds: number, speed: number, curvature?
         velocityX: gait.footVelocity[leg.foot * 2], velocityZ: gait.footVelocity[leg.foot * 2 + 1], toX: landingX + (gait.pathScratch[0] - landingX) * blend, toZ: landingZ + (gait.pathScratch[2] - landingZ) * blend };
     }
   }
+  if (linear && moving && previous?.moving) planRecovery(gait, command, oldYaw);
   if (!moving) planSettling(gait, command);
+}
+
+/** On changed player intent, advance one group's rhythm when a planted sole
+ * strays beyond 32% of leg length from its predicted neutral contact. Keep the
+ * group's relative triggers, finish existing flights, and reserve a brief stance
+ * before lifting again. This avoids independently advancing feet into a hop.
+ */
+function planRecovery(gait: Gait, command: TravelCommand, oldYaw: number) {
+  let selected = -1, largest = 0.32, selectedReady = 0;
+  const lookAhead = command.seconds + 0.08 / gait.tempo;
+  const yaw = samplePath(gait, command, travelDistance(command, lookAhead), lookAhead, 0, gait.pathScratch);
+  const rootX = gait.pathScratch[0], rootZ = gait.pathScratch[2];
+  const c = Math.cos(yaw), s = Math.sin(yaw), oldC = Math.cos(oldYaw), oldS = Math.sin(oldYaw);
+  for (const leg of gait.legs) {
+    if (!gait.planted[leg.foot]) continue;
+    const offset = leg.foot * 3, x = gait.soles[offset] - gait.pivot[0], z = gait.soles[offset + 2] - gait.pivot[2];
+    const fx = x + gait.offsets[offset], fz = z + gait.offsets[offset + 2];
+    const worldX = command.x + oldC * fx + oldS * fz;
+    const worldZ = command.z - oldS * fx + oldC * fz;
+    const error = Math.hypot(worldX - rootX - c * x - s * z, worldZ - rootZ + s * x - c * z) / leg.length;
+    if (error <= largest) continue;
+    const group = gait.groups[leg.group];
+    let ready = command.seconds + 0.04 / gait.tempo;
+    for (const foot of group.feet) {
+      // A recovery never overlaps an existing flight or immediately relifts a foot.
+      ready = Math.max(ready, gait.touchdowns[foot]);
+      const phase = (gait.legs[foot].trigger - leg.trigger + 1) % 1;
+      ready = Math.max(ready, gait.touchdowns[foot] + group.period * 0.15 - phase * group.period);
+    }
+    // Keep an earlier pending step. Frequent mouse events must not postpone it.
+    if (ready >= gait.nextLiftOffs[leg.foot] - 1e-6) continue;
+    selected = leg.foot; largest = error; selectedReady = ready;
+  }
+  if (selected < 0) return;
+  const leg = gait.legs[selected];
+  command.recoveries[leg.group] = 1;
+  command.starts[leg.group] = selectedReady;
+  command.startTriggers[leg.group] = leg.trigger;
 }
 
 /** Compile a finite sequence when stopping. Existing flights finish first, then
@@ -330,7 +369,7 @@ export function sampleGait(gait: Gait, seconds: number) {
         }
         continue;
       }
-      if (!gait.commands[index - 1]?.moving) {
+      if (!gait.commands[index - 1]?.moving || command.recoveries[leg.group]) {
         cycleOrigin = command.starts[leg.group] + ((leg.trigger - command.startTriggers[leg.group] + 1) % 1) * period;
         nextCycle = 0;
       }
@@ -392,6 +431,7 @@ export function sampleGait(gait: Gait, seconds: number) {
     const nextLift = gait.moving ? cycleOrigin + nextCycle * period : step && seconds < step.liftOff ? step.liftOff : Infinity;
     if (step && seconds < step.touchdown + ramp) settling = true;
     if (step && seconds < step.touchdown) gait.settlingRemaining++;
+    gait.nextLiftOffs[leg.foot] = nextLift;
     const loading = (seconds - touchdown) / ramp, unloading = (nextLift - seconds) / ramp;
     let load = inFlight ? 0 : smooth(loading) * smooth(unloading);
     let rate = inFlight ? 0 : (smoothRate(loading) * smooth(unloading) - smooth(loading) * smoothRate(unloading)) / ramp;

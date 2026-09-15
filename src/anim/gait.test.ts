@@ -38,6 +38,37 @@ function groundFoot(gait: Gait, foot: number) {
   return [gait.pivot[0] + gait.rootTravel[0] + c * x + s * z, gait.offsets[foot * 3 + 1], gait.pivot[2] + gait.rootTravel[2] - s * x + c * z];
 }
 
+test('sharp player turns advance a recovery step without overlapping flights or delaying pending recovery', () => {
+  const { walk } = fixture(2);
+  moveGait(walk.gait, 0, 1, 0);
+  let recovered = false;
+  for (let trial = 0; trial < 30 && !recovered; trial++) {
+    const gait = structuredClone(walk.gait), seconds = 0.4 + trial * 0.04;
+    sampleGait(gait, seconds);
+    const previous = gait.nextLiftOffs.slice(), contacts = gait.legs.map(leg => groundFoot(gait, leg.foot));
+    moveGait(gait, seconds, 1, 0, 1, 0.9);
+    const command = gait.commands.at(-1)!;
+    if (!command.recoveries.some(Boolean)) continue;
+    recovered = true;
+    sampleGait(gait, seconds);
+    assert.ok(gait.nextLiftOffs.some((time, foot) => time < previous[foot]));
+    gait.legs.forEach(leg => groundFoot(gait, leg.foot).forEach((value, axis) => assert.ok(Math.abs(value - contacts[leg.foot][axis]) < 1e-9)));
+    const recoveryTime = Math.min(...gait.nextLiftOffs);
+    for (let event = 1; event <= 3; event++) moveGait(gait, seconds + event * 0.002, 1, 0, 1, 0.005);
+    sampleGait(gait, seconds + 0.006);
+    assert.ok(Math.min(...gait.nextLiftOffs) <= recoveryTime + 1e-9, 'new input must not keep pushing recovery into the future');
+    for (let frame = 0; frame < 150; frame++) {
+      sampleGait(gait, seconds + frame / 120);
+      assert.ok(gait.planted.some(Boolean), 'a recovery must retain foot support');
+      assert.ok(gait.offsets.every(Number.isFinite));
+    }
+    sampleGait(gait, recoveryTime + 0.1); const expected = gait.offsets.slice();
+    sampleGait(gait, 30); sampleGait(gait, recoveryTime + 0.1);
+    assert.deepEqual(gait.offsets, expected);
+  }
+  assert.ok(recovered, 'a stretched stance should trigger recovery');
+});
+
 test('head stabilization reduces positional bob and lean without changing travel or foot targets', () => {
   const { skin, rig, walk, pose } = fixture(2);
   configureBodyMotion(walk, 1); configureMovementReaction(walk, 1, 0);
