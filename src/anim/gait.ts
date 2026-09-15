@@ -272,6 +272,10 @@ function planRecovery(gait: Gait, command: TravelCommand, oldYaw: number) {
     const error = Math.hypot(worldX - rootX - c * x - s * z, worldZ - rootZ + s * x - c * z) / leg.length;
     if (error <= largest) continue;
     const group = gait.groups[leg.group];
+    // Advancing one group changes its timing relative to every other group.
+    // Only do this when its evenly spaced stance intervals cover a full cycle.
+    // Otherwise preserve coordination, especially for one-foot leg groups.
+    if (group.feet.length * gait.duty < 1 - 1e-9) continue;
     let ready = command.seconds + 0.04 / gait.tempo;
     for (const foot of group.feet) {
       // A recovery never overlaps an existing flight or immediately relifts a foot.

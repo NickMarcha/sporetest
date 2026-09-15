@@ -69,6 +69,29 @@ test('sharp player turns advance a recovery step without overlapping flights or 
   assert.ok(recovered, 'a stretched stance should trigger recovery');
 });
 
+test('recovery does not introduce unsupported intervals across mixed leg groups', () => {
+  let recoveries = 0;
+  for (const count of [2, 3, 4, 7]) for (const unequal of [false, true]) {
+    const { walk } = fixture(count, unequal);
+    moveGait(walk.gait, 0, 1, 0);
+    for (const duty of [0.35, 0.65]) for (let trial = 0; trial < 16; trial++) {
+      const gait = structuredClone(walk.gait), seconds = 0.3 + trial * 0.11;
+      gait.duty = duty;
+      moveGait(gait, seconds, 1, 0, 1, 0.9);
+      if (!gait.commands.at(-1)!.recoveries.some(Boolean)) continue;
+      recoveries++;
+      const baseline = structuredClone(gait);
+      baseline.commands.at(-1)!.recoveries.fill(0);
+      for (let frame = 0; frame < 180; frame++) {
+        const time = seconds + frame / 60;
+        sampleGait(gait, time); sampleGait(baseline, time);
+        assert.ok(gait.planted.some(Boolean) || !baseline.planted.some(Boolean), `${count} feet, unequal=${unequal}, duty=${duty}, command=${seconds}, sample=${time}`);
+      }
+    }
+  }
+  assert.ok(recoveries > 0, 'the support check must exercise actual recoveries');
+});
+
 test('head stabilization reduces positional bob and lean without changing travel or foot targets', () => {
   const { skin, rig, walk, pose } = fixture(2);
   configureBodyMotion(walk, 1); configureMovementReaction(walk, 1, 0);
